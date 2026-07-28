@@ -4,7 +4,7 @@ An AI-powered intent-based productivity operating system designed for students.
 
 ## Current Status
 
-🚧 Phase 0 - Foundation
+🚧 Phase 1 - building api and database
 
 ## Tech Stack
 
