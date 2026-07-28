@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from backend.database.database import create_database
 
+from backend.api.tasks import router as task_router
 
 app = FastAPI(
     title="StudentOS",
@@ -23,4 +24,5 @@ def health():
         "version": "0.0.1"
     }
 
+app.include_router(task_router)
 
