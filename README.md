@@ -16,8 +16,8 @@ Current Phase:
 Current Milestone:
 - ✅ Backend Foundation
 - ✅ SQLite Database Foundation
-- ⏳ Task Service
-- ⏳ Task CRUD API
+- ✅ Task Service
+- ✅ Task CRUD API
 
 ---
 
