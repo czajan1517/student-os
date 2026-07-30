@@ -16,7 +16,7 @@ class Task(Base):
 
     description: Mapped[str] = mapped_column(String, default="")
 
-    priority: Mapped[str] = mapped_column(String, default="Medium")
+    priority: Mapped[int] = mapped_column(Integer, default=0)
 
     estimated_time: Mapped[int] = mapped_column(default=60)
 
@@ -31,6 +31,20 @@ class Task(Base):
         onupdate=datetime.now
         )
 
-    
 
+class CalendarEvent(Base):
+    __tablename__ = "calendar_events"
+
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    title: Mapped[str] = mapped_column(String, nullable=False)
+
+    description: Mapped[str] = mapped_column(String, default="")
+
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+
+    start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    end_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     
