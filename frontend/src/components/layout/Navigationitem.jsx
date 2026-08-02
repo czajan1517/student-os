@@ -1,25 +1,30 @@
+import { NavLink } from "react-router-dom";
 
 
 function Navigationitem({
     icon,
     children,
     onClick,
-    isActive = false
+    isActive = false,
+    to
 }) {
     return (
-        <button
-            type="button"
+        <NavLink
+            to={to}
+            end={to === "/"}
             onClick={onClick}
-            className={`flex flex-row w-full rounded-md px-4 py-2 text-left transition gap-5
-            ${
-                isActive
-                    ? "bg-[#E8C9A8] text-[#A85A24]"
-                    : "text-[#5C5248] hover:bg-[#F2DFCA] hover:text-[#5C5248]"
-            }`}
-        >   
+            className={({ isActive }) =>
+                `flex flex-row w-full rounded-md px-4 py-2 gap-5 transition
+                ${
+                    isActive
+                        ? "bg-[#E8C9A8] text-[#A85A24]"
+                        : "text-[#5C5248] hover:bg-[#F2DFCA] hover:text-[#A85A24]"
+                }`
+            }
+        >
             {icon}
-            {children}
-        </button>
+            <span>{children}</span>
+        </NavLink>
     );
 }
 

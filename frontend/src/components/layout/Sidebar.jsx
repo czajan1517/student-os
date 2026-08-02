@@ -7,7 +7,7 @@ import {
     Settings
 } from "lucide-react";
 
-function Sidebar({activePage, setActivePage}) {
+function Sidebar() {
 
 
     return (
@@ -20,40 +20,35 @@ function Sidebar({activePage, setActivePage}) {
             <nav className="flex-1 flex flex-col gap-13">
 
                 <Navigationitem
-                    isActive={activePage === "Dashboard"}
-                    onClick={() => setActivePage("Dashboard")}
+                    to="/"
                     icon={<LayoutDashboard size={20} />}
                 >
                     Dashboard
                 </Navigationitem>
 
                 <Navigationitem
-                    isActive={activePage === "Chat"}
-                    onClick={() => setActivePage("Chat")}
+                    to="/chat"
                     icon={<MessageSquare size={20} />}
                 >
                     Chat
                 </Navigationitem>
 
                 <Navigationitem
-                    isActive={activePage === "Calendar"}
-                    onClick={() => setActivePage("Calendar")}
+                    to="/calendar"
                     icon={<Calendar size={20} />}
                 >
                     Calendar
                 </Navigationitem>
 
                 <Navigationitem
-                    isActive={activePage === "Tasks"}
-                    onClick={() => setActivePage("Tasks")}
+                    to="/tasks"
                     icon={<CheckSquare size={20} />}
                 >
                     Tasks
                 </Navigationitem>
 
                 <Navigationitem
-                    isActive={activePage === "Settings"}
-                    onClick={() => setActivePage("Settings")}
+                    to="/settings"
                     icon={<Settings size={20} />}
                 >
                     Settings
