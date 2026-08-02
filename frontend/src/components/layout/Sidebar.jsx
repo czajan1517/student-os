@@ -1,4 +1,3 @@
-import { useState } from "react";
 import Navigationitem from "../layout/Navigationitem";
 import {
     LayoutDashboard,
@@ -8,9 +7,8 @@ import {
     Settings
 } from "lucide-react";
 
-function Sidebar() {
+function Sidebar({activePage, setActivePage}) {
 
-    const [active, setActive] = useState("Dashboard");
 
     return (
         <div className="h-full flex flex-col bg-[#EEE8E2] p-6">
@@ -22,40 +20,40 @@ function Sidebar() {
             <nav className="flex-1 flex flex-col gap-13">
 
                 <Navigationitem
-                    isActive={active === "Dashboard"}
-                    onClick={() => setActive("Dashboard")}
+                    isActive={activePage === "Dashboard"}
+                    onClick={() => setActivePage("Dashboard")}
                     icon={<LayoutDashboard size={20} />}
                 >
                     Dashboard
                 </Navigationitem>
 
                 <Navigationitem
-                    isActive={active === "Chat"}
-                    onClick={() => setActive("Chat")}
+                    isActive={activePage === "Chat"}
+                    onClick={() => setActivePage("Chat")}
                     icon={<MessageSquare size={20} />}
                 >
                     Chat
                 </Navigationitem>
 
                 <Navigationitem
-                    isActive={active === "Calendar"}
-                    onClick={() => setActive("Calendar")}
+                    isActive={activePage === "Calendar"}
+                    onClick={() => setActivePage("Calendar")}
                     icon={<Calendar size={20} />}
                 >
                     Calendar
                 </Navigationitem>
 
                 <Navigationitem
-                    isActive={active === "Tasks"}
-                    onClick={() => setActive("Tasks")}
+                    isActive={activePage === "Tasks"}
+                    onClick={() => setActivePage("Tasks")}
                     icon={<CheckSquare size={20} />}
                 >
                     Tasks
                 </Navigationitem>
 
                 <Navigationitem
-                    isActive={active === "Settings"}
-                    onClick={() => setActive("Settings")}
+                    isActive={activePage === "Settings"}
+                    onClick={() => setActivePage("Settings")}
                     icon={<Settings size={20} />}
                 >
                     Settings
