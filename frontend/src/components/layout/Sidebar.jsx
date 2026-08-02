@@ -1,5 +1,12 @@
 import { useState } from "react";
-import Button from "../common/Button";
+import Navigationitem from "../layout/Navigationitem";
+import {
+    LayoutDashboard,
+    MessageSquare,
+    Calendar,
+    CheckSquare,
+    Settings
+} from "lucide-react";
 
 function Sidebar() {
 
@@ -12,42 +19,47 @@ function Sidebar() {
                 StudentOS
             </h1>
 
-            <nav className="flex-1 flex flex-col gap-4">
+            <nav className="flex-1 flex flex-col gap-13">
 
-                <Button
+                <Navigationitem
                     isActive={active === "Dashboard"}
                     onClick={() => setActive("Dashboard")}
+                    icon={<LayoutDashboard size={20} />}
                 >
                     Dashboard
-                </Button>
+                </Navigationitem>
 
-                <Button
+                <Navigationitem
                     isActive={active === "Chat"}
                     onClick={() => setActive("Chat")}
+                    icon={<MessageSquare size={20} />}
                 >
                     Chat
-                </Button>
+                </Navigationitem>
 
-                <Button
+                <Navigationitem
                     isActive={active === "Calendar"}
                     onClick={() => setActive("Calendar")}
+                    icon={<Calendar size={20} />}
                 >
                     Calendar
-                </Button>
+                </Navigationitem>
 
-                <Button
+                <Navigationitem
                     isActive={active === "Tasks"}
                     onClick={() => setActive("Tasks")}
+                    icon={<CheckSquare size={20} />}
                 >
                     Tasks
-                </Button>
+                </Navigationitem>
 
-                <Button
+                <Navigationitem
                     isActive={active === "Settings"}
                     onClick={() => setActive("Settings")}
+                    icon={<Settings size={20} />}
                 >
                     Settings
-                </Button>
+                </Navigationitem>
 
             </nav>
 

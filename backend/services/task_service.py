@@ -56,7 +56,7 @@ class TaskService:
         try:
             existing_task = db.query(Task).filter(Task.id == task_id).first()
             if existing_task is None:
-                return
+                return None
             
             updated_data = task_data.model_dump(exclude_unset=True)
 
