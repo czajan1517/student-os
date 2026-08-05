@@ -1,5 +1,8 @@
-import { Sun } from "lucide-react";
+import { Calendar, Sun } from "lucide-react";
 import { Bell } from "lucide-react";
+import StatisticCard from "../components/layout/StatisticsCard";
+import { CheckSquare, Clock3, TrendingUp } from "lucide-react";
+
 
 function Dashboard() {
 
@@ -24,23 +27,43 @@ function Dashboard() {
 
         <div className="flex-1 grid grid-cols-4 gap-9 mt-9">
 
-            <div className="h-45 bg-[#FFFFFF] rounded-xl">
-                Task Today
-            </div>
+            <div>
 
-            <div className="h-45 bg-[#FFFFFF] rounded-xl">
-                Events Today
-
-            </div>
-
-            <div className="h-45 bg-[#FFFFFF] rounded-xl">
-                Focus Time
+                <StatisticCard
+                    icon={<CheckSquare size={24} />}
+                    title="Tasks Today"
+                    value="6"
+                    subtitle="3 completed"
+                />
 
             </div>
 
-            <div className="h-45 bg-[#FFFFFF] rounded-xl">
-                Progress 
+            <div>
+                <StatisticCard
+                    icon={<Calendar size={24} />}
+                    title="Events Today"
+                    value="3"
+                    subtitle="Next: 2:00 PM"
+                />
+            </div>
 
+            <div>
+                <StatisticCard
+                    icon={<Clock3 size={24} />}
+                    title="Focus Time"
+                    value="5h 30m"
+                    subtitle="Keep it up!"
+                />
+
+            </div>
+
+            <div>
+               <StatisticCard
+                    icon={<TrendingUp size={24} />}
+                    title="Progress"
+                    value="72%"
+                    subtitle="This week"
+                />
             </div>
         </div>
 
