@@ -4,12 +4,25 @@ from backend.database.database import create_database
 from backend.api.tasks import router as task_router
 from backend.api.calendar import router as event_router
 
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="StudentOS",
     version="0.0.1",
     description="AI powered intent=based productivity operating system"
 )
+## TODO: to be changed 
+origins = [
+    "http://localhost:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    )
 
 create_database()
 

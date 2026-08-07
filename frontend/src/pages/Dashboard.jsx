@@ -1,11 +1,27 @@
 import { Calendar, Sun } from "lucide-react";
 import { Bell } from "lucide-react";
-import StatisticCard from "../components/layout/StatisticsCard";
+import StatisticsCard from "../components/dashboard/StatisticsCard";
 import { CheckSquare, Clock3, TrendingUp } from "lucide-react";
+// ------ 
+import { useEffect, useState } from "react";
+import { getDashboardData } from "../services/dashboardApi";
 
 
 function Dashboard() {
 
+    const [tasks, setTasks] = useState([]);
+    const [events, setEvents] = useState([]);
+
+    useEffect(() => {
+        async function loadDashboardData() {
+            const data = await getDashboardData();
+
+            setTasks(data.tasks);
+            setEvents(data.events);
+        }
+
+        loadDashboardData();
+    }, []);
 
 
     return (
@@ -29,26 +45,26 @@ function Dashboard() {
 
             <div>
 
-                <StatisticCard
+                <StatisticsCard
                     icon={<CheckSquare size={24} />}
                     title="Tasks Today"
-                    value="6"
+                    value={tasks.length}
                     subtitle="3 completed"
                 />
 
             </div>
 
             <div>
-                <StatisticCard
+                <StatisticsCard
                     icon={<Calendar size={24} />}
                     title="Events Today"
-                    value="3"
+                    value={events.length}
                     subtitle="Next: 2:00 PM"
                 />
             </div>
 
             <div>
-                <StatisticCard
+                <StatisticsCard
                     icon={<Clock3 size={24} />}
                     title="Focus Time"
                     value="5h 30m"
@@ -58,7 +74,7 @@ function Dashboard() {
             </div>
 
             <div>
-               <StatisticCard
+               <StatisticsCard
                     icon={<TrendingUp size={24} />}
                     title="Progress"
                     value="72%"
@@ -71,11 +87,19 @@ function Dashboard() {
 
         <div className="grid grid-cols-2 gap-9 mt-8">
             <div className="h-96 bg-white rounded-xl">
+
+
                 Today's Task
+
+
             </div>
 
             <div className="h-96 bg-white rounded-xl">
+
+
                 Today's Schedule
+
+                
             </div>
         </div>
 
