@@ -11,13 +11,24 @@ function Dashboard() {
 
     const [tasks, setTasks] = useState([]);
     const [events, setEvents] = useState([]);
+    const [todayTasks, setTodayTasks] = useState([])
+    const [completedTodayTasks, setCompletedTodayTask] = useState([])
+
 
     useEffect(() => {
         async function loadDashboardData() {
             const data = await getDashboardData();
+            
+            console.log("All tasks:", data.tasks);
+            console.log("Today's tasks:", data.todayTasks);
+            console.log("Completed today:", data.completedTodayTasks);
+
 
             setTasks(data.tasks);
             setEvents(data.events);
+            setTodayTasks(data.todayTasks);
+            setCompletedTodayTask(data.completedTodayTasks);
+
         }
 
         loadDashboardData();
@@ -48,8 +59,8 @@ function Dashboard() {
                 <StatisticsCard
                     icon={<CheckSquare size={24} />}
                     title="Tasks Today"
-                    value={tasks.length}
-                    subtitle="3 completed"
+                    value={todayTasks.length}
+                    subtitle={`${completedTodayTasks.length} completed`}
                 />
 
             </div>

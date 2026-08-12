@@ -8,6 +8,7 @@ class TaskCreate(BaseModel):
     priority: int | None = None
     estimated_time: int | None = None
     due_date: datetime | None = None
+    completed: bool = False
 
 
 class TaskUpdate(BaseModel):
@@ -17,6 +18,6 @@ class TaskUpdate(BaseModel):
     priority: int | None = None
     estimated_time: int | None = None
     due_date: datetime | None = None
-
+    completed: bool | None = None
 
 
