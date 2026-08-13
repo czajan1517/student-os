@@ -13,21 +13,20 @@ function Dashboard() {
     const [events, setEvents] = useState([]);
     const [todayTasks, setTodayTasks] = useState([])
     const [completedTodayTasks, setCompletedTodayTask] = useState([])
+    const [todayEvents, setTodayEvents] = useState([])
+    const [nextEvent, setNextEvent] = useState(null);
 
 
     useEffect(() => {
         async function loadDashboardData() {
             const data = await getDashboardData();
-            
-            console.log("All tasks:", data.tasks);
-            console.log("Today's tasks:", data.todayTasks);
-            console.log("Completed today:", data.completedTodayTasks);
-
 
             setTasks(data.tasks);
             setEvents(data.events);
             setTodayTasks(data.todayTasks);
             setCompletedTodayTask(data.completedTodayTasks);
+            setTodayEvents(data.todayEvents);
+            setNextEvent(data.nextEvent);
 
         }
 
@@ -70,7 +69,14 @@ function Dashboard() {
                     icon={<Calendar size={24} />}
                     title="Events Today"
                     value={events.length}
-                    subtitle="Next: 2:00 PM"
+                    subtitle={
+                        nextEvent
+                        ? `Next: ${new Date(nextEvent.start_date).toLocaleTimeString([], {
+                                    hour: "numeric",
+                                    minute: "2-digit"
+                                })}`
+                        : "No upcoming events"
+                    }
                 />
             </div>
 
