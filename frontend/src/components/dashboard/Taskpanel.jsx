@@ -1,6 +1,9 @@
+import { ClipboardCheck } from "lucide-react";
 import Card from "../common/Card";
 import TaskItem from "./TaskItem";
 import { Link } from "react-router-dom";
+
+
 
 function TaskPanel({ tasks, onToggleTask }) {
 
@@ -32,16 +35,33 @@ function TaskPanel({ tasks, onToggleTask }) {
                 </div>
 
                 {/* Tasks */}
-                <div>
-                    {sortedTasks.map((task) => (
-                        <TaskItem
-                            key={task.id}
-                            task={task}
-                            onToggle={onToggleTask}
-                        />
-                    ))}
-                </div>
+                {tasks.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center flex-1 py-16 text-center">
 
+                        <ClipboardCheck
+                        size={28}
+                        strokeWidth={1.8}
+                        className="text-[#D66A1F] mb-3"
+                        />
+                        <p className="text-lg font-semibold">
+                            You're all caught up!
+                        </p>
+
+                        <p className="text-lg text-gray-500 mt-1">
+                            No task scheduled for today.
+                        </p>
+                    </div>
+                ) : (
+                    <div>
+                        {sortedTasks.map((task) => (
+                            <TaskItem
+                                key={task.id}
+                                task={task}
+                                onToggle={onToggleTask}
+                            />
+                        ))}
+                    </div>
+                )}
             </div>
         </Card>
     );
