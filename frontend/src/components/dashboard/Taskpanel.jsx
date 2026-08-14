@@ -1,7 +1,7 @@
-import { ClipboardCheck } from "lucide-react";
+import { ArrowRight, ClipboardCheck, ListTodo } from "lucide-react";
 import Card from "../common/Card";
 import TaskItem from "./TaskItem";
-import { Link } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 
 
 
@@ -17,21 +17,35 @@ function TaskPanel({ tasks, onToggleTask }) {
     });
 
     return (
-        <Card>
+        <Card className="overflow-hidden border border-[#EEE7E1] p-0! shadow-[0_2px_10px_rgba(77,50,32,0.05)]">
             <div className="flex flex-col w-full">
 
                 {/* Header */}
-                <div className="flex items-center justify-between px-2 py-2 border-b border-gray-200">
-                    <h2 className="text-xl font-semibold">
-                        Today's Tasks
-                    </h2>
+                <div className="flex items-center justify-between border-b border-[#EEE7E1] px-6 py-4">
+                    <div className="flex items-center gap-3">
+                        <span className="flex size-10 items-center justify-center rounded-full bg-[#FFF0E5] text-[#C7651E]">
+                            <ListTodo size={21} strokeWidth={1.8} />
+                        </span>
 
-                    <Link
+                        <div>
+                            <h2 className="text-xl font-semibold text-[#241C17]">
+                                Today's Tasks
+                            </h2>
+                            <p className="text-sm text-[#7C7068]">
+                                {tasks.length
+                                    ? `${tasks.length} ${tasks.length === 1 ? "task" : "tasks"} today`
+                                    : "Your task list is clear"}
+                            </p>
+                        </div>
+                    </div>
+
+                    <NavLink
                         to="/tasks"
-                        className="text-base font-medium text-[#D66A1F] hover:text-[#A85A24] transition"                    
-                        >
-                        View all
-                    </Link>
+                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-[#C7651E] transition-colors hover:bg-[#FFF0E5] hover:text-[#9E4812] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C7651E]"
+                    >
+                        View tasks
+                        <ArrowRight size={16} aria-hidden="true" />
+                    </NavLink>
                 </div>
 
                 {/* Tasks */}

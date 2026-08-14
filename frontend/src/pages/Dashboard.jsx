@@ -2,6 +2,7 @@ import { Bell, Calendar, CheckSquare, Clock3, Sun, TrendingUp } from "lucide-rea
 import { useEffect, useState } from "react";
 import StatisticsCard from "../components/dashboard/StatisticsCard";
 import TaskPanel from "../components/dashboard/TaskPanel";
+import Schedulepanel from "../components/dashboard/Schedulepanel";
 import { getDashboardData } from "../services/dashboardApi";
 import { updateTask } from "../services/taskApi";
 
@@ -109,14 +110,12 @@ function Dashboard() {
                 />
             </div>
 
-            <div className="mt-8 grid grid-cols-2 gap-9">
+            <div className="mt-8 grid grid-cols-1 gap-9 xl:grid-cols-2">
                 {/* Task Panel */}
                 <TaskPanel tasks={todayTasks} onToggleTask={handleToggleTask} />
 
                 {/* Today's Schedule */}
-                <div className="h-96 rounded-xl bg-white">
-                    Today's Schedule
-                </div>
+                <Schedulepanel events={todayEvents} nextEvent={nextEvent} />
             </div>
 
             {/* Quote */}
