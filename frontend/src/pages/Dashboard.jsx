@@ -1,6 +1,7 @@
 import { Calendar, CheckSquare, Clock3, Sun, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import NotificationMenu from "../components/dashboard/NotificationMenu";
+import Quotecard from "../components/dashboard/Quotecard";
 import StatisticsCard from "../components/dashboard/StatisticsCard";
 import TaskPanel from "../components/dashboard/TaskPanel";
 import Schedulepanel from "../components/dashboard/Schedulepanel";
@@ -132,8 +133,8 @@ function Dashboard() {
             </div>
 
             {/* Quote */}
-            <div className="mt-16 grid grid-cols-1">
-                <div className="h-28 rounded-xl bg-white">Quote</div>
+            <div className="mt-8">
+                <Quotecard />
             </div>
         </div>
     );
