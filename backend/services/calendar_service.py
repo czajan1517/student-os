@@ -10,7 +10,7 @@ class CalendarEventService:
         new_event = CalendarEvent(
             title=calendar_event.title,
             description=calendar_event.description,
-            priority=calendar_event.priority,
+            priority=int(calendar_event.priority),
             start_date=calendar_event.start_date,
             end_date=calendar_event.end_date
         )
@@ -57,7 +57,25 @@ class CalendarEventService:
             if existing_event is None:
                 return None
             
-            updated_data = calendar_event_data.model_dump(exclude_unset=True)
+            updated_data = calendar_event_data.model_dump(
+                exclude_unset=True,
+                exclude_none=True,
+            )
+
+            updated_start = updated_data.get(
+                "start_date",
+                existing_event.start_date,
+            )
+            updated_end = updated_data.get(
+                "end_date",
+                existing_event.end_date,
+            )
+
+            if updated_end <= updated_start:
+                raise ValueError("End date must be later than the start date")
+
+            if "priority" in updated_data:
+                updated_data["priority"] = int(updated_data["priority"])
 
             
             for key, value in updated_data.items():

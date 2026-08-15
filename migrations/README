@@ -1,0 +1,14 @@
+StudentOS database migrations
+
+For an existing pre-Alembic database, mark the initial schema as applied once:
+
+    python -m alembic stamp 25b9c5e2c8ce
+    python -m alembic upgrade head
+
+For a new database, apply every migration from the beginning:
+
+    python -m alembic upgrade head
+
+Create future revisions after updating SQLAlchemy models:
+
+    python -m alembic revision --autogenerate -m "describe the change"

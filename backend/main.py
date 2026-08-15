@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from backend.database.database import create_database
 
 from backend.api.tasks import router as task_router
 from backend.api.calendar import router as event_router
@@ -23,8 +22,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     )
-
-create_database()
 
 @app.get("/")
 def root():

@@ -1,21 +1,26 @@
+import os
+
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.database.models import Base
 
+load_dotenv()
 
-DATABASE_URL = "sqlite:///studentos.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///studentos.db")
+connect_args = (
+    {"check_same_thread": False}
+    if DATABASE_URL.startswith("sqlite")
+    else {}
+)
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False}
-    )
+    connect_args=connect_args,
+)
 
 SessionLocal = sessionmaker(
     autoflush=False,
     autocommit=False,
     bind=engine
-    )
-
-def create_database():
-    Base.metadata.create_all(bind=engine)
+)

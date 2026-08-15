@@ -11,9 +11,10 @@ class TaskService:
         new_task = Task(
             title=task.title,
             description=task.description,
-            priority=task.priority,
+            priority=int(task.priority),
             estimated_time=task.estimated_time,
             due_date=task.due_date,
+            completed=task.completed,
         )
         try:
             db.add(new_task)
@@ -58,7 +59,16 @@ class TaskService:
             if existing_task is None:
                 return None
             
-            updated_data = task_data.model_dump(exclude_unset=True)
+            updated_data = task_data.model_dump(
+                exclude_unset=True,
+                exclude_none=True,
+            )
+
+            if "due_date" in task_data.model_fields_set:
+                updated_data["due_date"] = task_data.due_date
+
+            if "priority" in updated_data:
+                updated_data["priority"] = int(updated_data["priority"])
 
             
             for key, value in updated_data.items():

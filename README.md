@@ -36,6 +36,23 @@ The application uses a modular architecture separating:
 - FastAPI routers and services
 - Database models and persistence
 
+## Database Setup
+
+StudentOS uses Alembic for database migrations. After installing the Python
+dependencies, prepare a new database with:
+
+```bash
+python -m alembic upgrade head
+```
+
+Existing databases created before Alembic was introduced must be stamped at
+the initial schema once before upgrading:
+
+```bash
+python -m alembic stamp 25b9c5e2c8ce
+python -m alembic upgrade head
+```
+
 ## Status
 
 🚧 **Work in Progress**
