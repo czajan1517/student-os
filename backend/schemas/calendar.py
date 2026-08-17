@@ -11,6 +11,9 @@ class CalendarCreate(BaseModel):
     start_date: datetime
     end_date: datetime
     priority: PriorityLevel = PriorityLevel.NORMAL
+    task_id: int | None = Field(default=None, gt=0)
+    locked: bool = True
+    buffer_after_minutes: int = Field(default=0, ge=0, le=240)
 
     @model_validator(mode="after")
     def check_dates(self):
@@ -24,6 +27,9 @@ class CalendarUpdate(BaseModel):
     start_date: datetime | None = None
     end_date: datetime | None = None
     priority: PriorityLevel | None = None
+    task_id: int | None = Field(default=None, gt=0)
+    locked: bool | None = None
+    buffer_after_minutes: int | None = Field(default=None, ge=0, le=240)
 
 
 class CalendarRead(BaseModel):
@@ -33,5 +39,8 @@ class CalendarRead(BaseModel):
     title: str
     description: str
     priority: PriorityLevel
+    task_id: int | None
+    locked: bool
+    buffer_after_minutes: int
     start_date: datetime
     end_date: datetime

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from backend.api.tasks import router as task_router
 from backend.api.calendar import router as event_router
+from backend.api.schedule import router as schedule_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -38,3 +39,4 @@ def health():
 
 app.include_router(task_router)
 app.include_router(event_router)
+app.include_router(schedule_router)

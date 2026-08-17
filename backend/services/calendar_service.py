@@ -1,5 +1,5 @@
 from backend.database.database import SessionLocal
-from backend.database.models import CalendarEvent
+from backend.database.models import CalendarEvent, Task
 from backend.schemas.calendar import CalendarCreate, CalendarUpdate
 
 
@@ -7,14 +7,23 @@ class CalendarEventService:
 
     def create_event(self, calendar_event: CalendarCreate):
         db = SessionLocal()
-        new_event = CalendarEvent(
-            title=calendar_event.title,
-            description=calendar_event.description,
-            priority=int(calendar_event.priority),
-            start_date=calendar_event.start_date,
-            end_date=calendar_event.end_date
-        )
         try:
+            if (
+                calendar_event.task_id is not None
+                and db.get(Task, calendar_event.task_id) is None
+            ):
+                raise ValueError("Linked task was not found")
+
+            new_event = CalendarEvent(
+                title=calendar_event.title,
+                description=calendar_event.description,
+                priority=int(calendar_event.priority),
+                task_id=calendar_event.task_id,
+                locked=calendar_event.locked,
+                buffer_after_minutes=calendar_event.buffer_after_minutes,
+                start_date=calendar_event.start_date,
+                end_date=calendar_event.end_date,
+            )
             db.add(new_event)
             db.commit()
             db.refresh(new_event)    
@@ -76,6 +85,12 @@ class CalendarEventService:
 
             if "priority" in updated_data:
                 updated_data["priority"] = int(updated_data["priority"])
+
+            if "task_id" in calendar_event_data.model_fields_set:
+                task_id = calendar_event_data.task_id
+                if task_id is not None and db.get(Task, task_id) is None:
+                    raise ValueError("Linked task was not found")
+                updated_data["task_id"] = task_id
 
             
             for key, value in updated_data.items():

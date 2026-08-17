@@ -1,5 +1,13 @@
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, String, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    text,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from datetime import datetime
 
 
@@ -61,6 +69,11 @@ class Task(Base):
         onupdate=datetime.now
         )
 
+    scheduled_events: Mapped[list["CalendarEvent"]] = relationship(
+        back_populates="task",
+        cascade="all, delete-orphan",
+    )
+
 
 class CalendarEvent(Base):
     __tablename__ = "calendar_events"
@@ -72,6 +85,10 @@ class CalendarEvent(Base):
         CheckConstraint(
             "end_date > start_date",
             name="ck_calendar_events_date_order",
+        ),
+        CheckConstraint(
+            "buffer_after_minutes BETWEEN 0 AND 240",
+            name="ck_calendar_events_buffer_range",
         ),
     )
 
@@ -94,6 +111,29 @@ class CalendarEvent(Base):
         nullable=False,
     )
 
+    # Distinguishes standalone events (None) from time blocks linked to tasks.
+    task_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+    )
+
+    locked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("1"),
+        nullable=False,
+    )
+
+    buffer_after_minutes: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default=text("0"),
+        nullable=False,
+    )
+
     start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     end_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    task: Mapped[Task | None] = relationship(back_populates="scheduled_events")

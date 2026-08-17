@@ -13,7 +13,13 @@ calevent_service = CalendarEventService()
     status_code=status.HTTP_201_CREATED,
 )
 def create_event(calendar_event: CalendarCreate):
-    return calevent_service.create_event(calendar_event)
+    try:
+        return calevent_service.create_event(calendar_event)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
 
 
 @router.get("/calendar_events", response_model=list[CalendarRead])
