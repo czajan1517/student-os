@@ -26,6 +26,19 @@ class Task(Base):
             "estimated_time > 0",
             name="ck_tasks_estimated_time_positive",
         ),
+        CheckConstraint(
+            "task_type IN ('general', 'assignment', 'exam_preparation', "
+            "'project', 'study', 'admin', 'chore', 'personal')",
+            name="ck_tasks_task_type_values",
+        ),
+        CheckConstraint(
+            "effort_level IN (0, 1, 2)",
+            name="ck_tasks_effort_level_range",
+        ),
+        CheckConstraint(
+            "recovery_buffer_minutes BETWEEN 0 AND 120",
+            name="ck_tasks_recovery_buffer_range",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -50,6 +63,34 @@ class Task(Base):
         Integer,
         default=60,
         server_default=text("60"),
+        nullable=False,
+    )
+
+    task_type: Mapped[str] = mapped_column(
+        String(32),
+        default="general",
+        server_default=text("'general'"),
+        nullable=False,
+    )
+
+    effort_level: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        server_default=text("1"),
+        nullable=False,
+    )
+
+    recovery_buffer_minutes: Mapped[int] = mapped_column(
+        Integer,
+        default=15,
+        server_default=text("15"),
+        nullable=False,
+    )
+
+    splittable: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("1"),
         nullable=False,
     )
 

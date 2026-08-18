@@ -45,6 +45,42 @@ class ApiSchemaContractTests(unittest.TestCase):
         self.assertIsInstance(task["priority"], int)
         self.assertTrue(task["completed"])
 
+    def test_task_priority_inputs_are_persisted(self):
+        response = self.client.post(
+            "/tasks",
+            json={
+                "title": "Prepare for chemistry final",
+                "task_type": "exam_preparation",
+                "effort_level": 2,
+                "recovery_buffer_minutes": 30,
+                "splittable": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        task = response.json()
+        self.assertEqual(task["task_type"], "exam_preparation")
+        self.assertEqual(task["effort_level"], 2)
+        self.assertEqual(task["recovery_buffer_minutes"], 30)
+        self.assertTrue(task["splittable"])
+
+        updated_response = self.client.put(
+            f"/tasks/{task['id']}",
+            json={
+                "task_type": "chore",
+                "effort_level": 0,
+                "recovery_buffer_minutes": 0,
+                "splittable": False,
+            },
+        )
+
+        self.assertEqual(updated_response.status_code, 200)
+        updated = updated_response.json()
+        self.assertEqual(updated["task_type"], "chore")
+        self.assertEqual(updated["effort_level"], 0)
+        self.assertEqual(updated["recovery_buffer_minutes"], 0)
+        self.assertFalse(updated["splittable"])
+
     def test_task_rejects_priority_outside_the_enum(self):
         response = self.client.post(
             "/tasks",

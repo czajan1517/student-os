@@ -13,6 +13,10 @@ class TaskService:
             description=task.description,
             priority=int(task.priority),
             estimated_time=task.estimated_time,
+            task_type=task.task_type.value,
+            effort_level=int(task.effort_level),
+            recovery_buffer_minutes=task.recovery_buffer_minutes,
+            splittable=task.splittable,
             due_date=task.due_date,
             completed=task.completed,
         )
@@ -69,6 +73,12 @@ class TaskService:
 
             if "priority" in updated_data:
                 updated_data["priority"] = int(updated_data["priority"])
+
+            if "task_type" in updated_data:
+                updated_data["task_type"] = updated_data["task_type"].value
+
+            if "effort_level" in updated_data:
+                updated_data["effort_level"] = int(updated_data["effort_level"])
 
             
             for key, value in updated_data.items():
