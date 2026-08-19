@@ -36,6 +36,11 @@ The application uses a modular architecture separating:
 - FastAPI routers and services
 - Database models and persistence
 
+## Developer References
+
+- [Error reference](docs/error-reference.md) — maps API errors and backend
+  exceptions to their source, meaning, and first debugging steps.
+
 ## Database Setup
 
 StudentOS uses Alembic for database migrations. After installing the Python

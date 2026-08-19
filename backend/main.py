@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from backend.api.ai import router as ai_router
 from backend.api.tasks import router as task_router
 from backend.api.calendar import router as event_router
 from backend.api.schedule import router as schedule_router
@@ -40,3 +41,4 @@ def health():
 app.include_router(task_router)
 app.include_router(event_router)
 app.include_router(schedule_router)
+app.include_router(ai_router)

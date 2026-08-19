@@ -10,9 +10,17 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DATABASE_PATH.as_posix()}"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from backend.ai.task_classifier import AIConfigurationError  # noqa: E402
+from backend.api.ai import get_task_classifier  # noqa: E402
 from backend.database.database import engine  # noqa: E402
 from backend.database.models import Base  # noqa: E402
 from backend.main import app  # noqa: E402
+from backend.schemas.ai import (  # noqa: E402
+    SuggestedEffort,
+    SuggestedImportance,
+    TaskClassification,
+)
+from backend.schemas.common import TaskType  # noqa: E402
 
 
 class ApiSchemaContractTests(unittest.TestCase):
@@ -80,6 +88,65 @@ class ApiSchemaContractTests(unittest.TestCase):
         self.assertEqual(updated["effort_level"], 0)
         self.assertEqual(updated["recovery_buffer_minutes"], 0)
         self.assertFalse(updated["splittable"])
+
+    def test_ai_task_classification_is_preview_only(self):
+        class StubTaskClassifier:
+            @staticmethod
+            def classify_task(_request):
+                return TaskClassification(
+                    task_type=TaskType.EXAM_PREPARATION,
+                    effort_level=SuggestedEffort.HEAVY,
+                    suggested_importance=SuggestedImportance.HIGH,
+                    estimated_time_minutes=180,
+                    recovery_buffer_minutes=20,
+                    splittable=True,
+                    confidence=0.9,
+                    reasons=["The task prepares for an exam"],
+                    assumptions=[],
+                    follow_up_questions=[],
+                )
+
+        tasks_before = self.client.get("/tasks").json()
+        app.dependency_overrides[get_task_classifier] = (
+            lambda: StubTaskClassifier()
+        )
+        try:
+            response = self.client.post(
+                "/ai/tasks/classify",
+                json={
+                    "title": "Study four chemistry chapters",
+                    "description": "Final exam next week",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_task_classifier, None)
+
+        self.assertEqual(response.status_code, 200)
+        classification = response.json()
+        self.assertEqual(classification["task_type"], "exam_preparation")
+        self.assertEqual(classification["effort_level"], "heavy")
+        self.assertEqual(classification["suggested_importance"], "high")
+        self.assertEqual(self.client.get("/tasks").json(), tasks_before)
+
+    def test_ai_task_classification_reports_missing_configuration(self):
+        class MisconfiguredTaskClassifier:
+            @staticmethod
+            def classify_task(_request):
+                raise AIConfigurationError("OPENAI_API_KEY is not configured")
+
+        app.dependency_overrides[get_task_classifier] = (
+            lambda: MisconfiguredTaskClassifier()
+        )
+        try:
+            response = self.client.post(
+                "/ai/tasks/classify",
+                json={"title": "Read calculus notes"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_task_classifier, None)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("OPENAI_API_KEY", response.json()["detail"])
 
     def test_task_rejects_priority_outside_the_enum(self):
         response = self.client.post(
