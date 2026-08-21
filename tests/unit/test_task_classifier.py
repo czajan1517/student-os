@@ -1,9 +1,7 @@
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend.ai.task_classifier import (
-    AIConfigurationError,
     TaskClassificationError,
     TaskClassifier,
 )
@@ -16,19 +14,14 @@ from backend.schemas.ai import (
 from backend.schemas.common import TaskType
 
 
-class FakeResponses:
-    def __init__(self, parsed):
-        self.parsed = parsed
+class FakeOllamaClient:
+    def __init__(self, content):
+        self.content = content
         self.calls = []
 
-    def parse(self, **kwargs):
+    def chat(self, **kwargs):
         self.calls.append(kwargs)
-        return SimpleNamespace(output_parsed=self.parsed)
-
-
-class FakeOpenAIClient:
-    def __init__(self, parsed):
-        self.responses = FakeResponses(parsed)
+        return self.content
 
 
 class TaskClassifierTests(unittest.TestCase):
@@ -48,7 +41,7 @@ class TaskClassifierTests(unittest.TestCase):
 
     def test_classify_task_uses_structured_output_without_writing(self):
         expected = self.classification()
-        client = FakeOpenAIClient(expected)
+        client = FakeOllamaClient(expected.model_dump_json())
         classifier = TaskClassifier(
             client=client,
             model="test-classifier-model",
@@ -61,48 +54,66 @@ class TaskClassifierTests(unittest.TestCase):
         result = classifier.classify_task(request)
 
         self.assertEqual(result, expected)
-        call = client.responses.calls[0]
+        call = client.calls[0]
         self.assertEqual(call["model"], "test-classifier-model")
-        self.assertIs(call["text_format"], TaskClassification)
-        self.assertFalse(call["store"])
+        self.assertEqual(
+            call["output_format"],
+            TaskClassification.model_json_schema(),
+        )
+        self.assertEqual(
+            call["options"],
+            {"temperature": 0, "num_predict": 512},
+        )
+        self.assertIs(call["think"], False)
+        self.assertEqual(call["messages"][0]["role"], "system")
+        self.assertEqual(call["messages"][1]["role"], "user")
         self.assertNotIn("priority score", result.reasons[0].lower())
 
-    def test_classify_task_rejects_an_empty_parsed_response(self):
+    def test_user_supplied_duration_overrides_the_model_suggestion(self):
+        model_result = self.classification().model_copy(
+            update={"estimated_time_minutes": None}
+        )
         classifier = TaskClassifier(
-            client=FakeOpenAIClient(None),
+            client=FakeOllamaClient(model_result.model_dump_json()),
+            model="test-classifier-model",
+        )
+
+        result = classifier.classify_task(
+            TaskClassificationRequest(
+                title="Finish project",
+                estimated_time_minutes=180,
+            )
+        )
+
+        self.assertEqual(result.estimated_time_minutes, 180)
+
+    def test_classify_task_rejects_invalid_model_json(self):
+        classifier = TaskClassifier(
+            client=FakeOllamaClient("not valid JSON"),
             model="test-classifier-model",
         )
 
         with self.assertRaisesRegex(
             TaskClassificationError,
-            "did not return",
+            "request failed",
         ):
             classifier.classify_task(
                 TaskClassificationRequest(title="Ambiguous task")
             )
 
-    def test_missing_api_key_does_not_break_application_import(self):
-        classifier = TaskClassifier(model="test-classifier-model")
-
-        with patch.dict("os.environ", {"OPENAI_API_KEY": ""}):
-            with self.assertRaisesRegex(AIConfigurationError, "not configured"):
-                classifier.classify_task(
-                    TaskClassificationRequest(title="Read notes")
-                )
-
     def test_model_override_is_resolved_lazily_from_environment(self):
-        client = FakeOpenAIClient(self.classification())
+        client = FakeOllamaClient(self.classification().model_dump_json())
         classifier = TaskClassifier(client=client)
 
         with patch.dict(
             "os.environ",
-            {"OPENAI_TASK_CLASSIFIER_MODEL": "environment-model"},
+            {"OLLAMA_TASK_CLASSIFIER_MODEL": "environment-model"},
         ):
             classifier.classify_task(
                 TaskClassificationRequest(title="Read notes")
             )
 
-        call = client.responses.calls[0]
+        call = client.calls[0]
         self.assertEqual(call["model"], "environment-model")
 
 

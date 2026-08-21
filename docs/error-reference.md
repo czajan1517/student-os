@@ -26,7 +26,7 @@ Do not treat every non-`200` response as a backend defect. A `404`, `409`, or
 | Schema | Validates request and response shapes | Missing field, invalid enum, negative duration | `backend/schemas/` |
 | API router | Converts application errors into HTTP responses | `404`, `409`, `422`, `502`, `503` | `backend/api/` |
 | Service | Enforces calendar, priority, and scheduling rules | Missing relationship, completed task, impossible schedule | `backend/services/` |
-| AI integration | Calls OpenAI and parses structured output | Missing key, upstream failure, invalid model output | `backend/ai/` |
+| AI integration | Calls local Ollama and parses model output | Ollama stopped, model missing, invalid or empty model output | `backend/ai/` |
 | Database | Persists tasks and events | Constraint, connection, or transaction failure | `backend/database/` and migrations |
 
 ## HTTP status quick reference
@@ -36,8 +36,8 @@ Do not treat every non-`200` response as a backend defect. A `404`, `409`, or
 | `404 Not Found` | The requested task or calendar event does not exist | The endpoint in `backend/api/` and the ID sent by the caller |
 | `409 Conflict` | Valid input could not be applied because the requested schedule is infeasible | `backend/services/schedule_service.py` and the returned preview |
 | `422 Unprocessable Content` | The request shape or domain values are invalid | `backend/schemas/`, then the relevant service |
-| `502 Bad Gateway` | OpenAI did not provide a usable classification | `backend/ai/task_classifier.py` |
-| `503 Service Unavailable` | The AI integration is not configured | Backend environment variables and `backend/ai/task_classifier.py` |
+| `502 Bad Gateway` | The local model did not provide usable output | `backend/ai/task_classifier.py` or `backend/ai/chat_responder.py` |
+| `503 Service Unavailable` | Ollama is stopped or its configured model is missing | `backend/ai/ollama_client.py` and Ollama itself |
 | `500 Internal Server Error` | An unexpected exception escaped the known handlers | Backend traceback; begin at the deepest StudentOS file in the traceback |
 
 ## Task errors
@@ -179,34 +179,52 @@ these errors named exception classes and explicit API mappings.
 
 ## AI errors
 
+### `AIProviderUnavailableError` / `503`
+
+- **Visible message:** `Ollama is not running at http://127.0.0.1:11434`
+- **Seen from:** `POST /ai/tasks/classify` or `POST /ai/respond`
+- **Meaning:** The backend could not connect to the local Ollama server.
+- **Raised by:** `backend/ai/ollama_client.py`
+- **Translated by:** `backend/api/ai.py`
+- **Check:** Start Ollama and confirm `OLLAMA_BASE_URL` matches its local API.
+
 ### `AIConfigurationError` / `503`
 
-- **Visible message:** `OPENAI_API_KEY is not configured on the backend`
-- **Seen from:** `POST /ai/tasks/classify`
-- **Meaning:** The key is empty, missing, or still set to the example placeholder.
-- **Raised by:** `backend/ai/task_classifier.py`
+- **Visible message:** `Ollama model '<model>' is not installed`
+- **Meaning:** Ollama is running, but the configured model is unavailable.
+- **Raised by:** `backend/ai/ollama_client.py`
 - **Translated by:** `backend/api/ai.py`
-- **Check:** Configure `OPENAI_API_KEY` in the backend environment. Do not place
-  the key in frontend code or commit it to Git.
+- **Check:** Run `ollama pull <model>` or correct `OLLAMA_CHAT_MODEL` and
+  `OLLAMA_TASK_CLASSIFIER_MODEL` in the backend environment.
 
 ### `TaskClassificationError` / `502` — request failed
 
 - **Visible message:** `The task classification request failed`
-- **Meaning:** The OpenAI SDK raised `OpenAIError`, or the structured response
-  failed Pydantic validation.
+- **Meaning:** Ollama returned an HTTP/model-runner error, or its structured
+  response failed Pydantic validation.
 - **Raised by:** `backend/ai/task_classifier.py`
 - **Translated by:** `backend/api/ai.py`
 - **Check:** Inspect the chained backend traceback for the original exception.
-  Then check network access, model access, request limits, model configuration,
-  and whether the response still matches `backend/schemas/ai.py`.
+  Then check Ollama logs, the installed model, available memory, model
+  configuration, and whether the response still matches `backend/schemas/ai.py`.
 
-### `TaskClassificationError` / `502` — no parsed classification
+### `ChatResponseError` / `502` — request failed
 
-- **Visible message:** `The model did not return a task classification`
-- **Meaning:** The API call completed without a usable `output_parsed` value.
-- **Raised by:** `backend/ai/task_classifier.py`
-- **Check:** Inspect the raw response during backend debugging for refusal or
-  incomplete output, without exposing sensitive task content in user-facing logs.
+- **Visible message:** `The AI response request failed`
+- **Seen from:** `POST /ai/respond`
+- **Meaning:** Ollama could not complete the read-only chat request.
+- **Raised by:** `backend/ai/chat_responder.py`
+- **Translated by:** `backend/api/ai.py`
+- **Check:** Inspect the chained exception, Ollama logs, available memory, and
+  `OLLAMA_CHAT_MODEL` configuration.
+
+### `ChatResponseError` / `502` — empty response
+
+- **Visible message:** `The model did not return a message`
+- **Meaning:** The local model returned no usable output text.
+- **Raised by:** `backend/ai/chat_responder.py`
+- **Check:** Inspect the response status for refusal or incomplete output. Do not
+  log private conversation text in user-facing errors.
 
 ## Warnings are not exceptions
 
@@ -260,8 +278,10 @@ Examples:
 ```text
 ScheduleConflictError
 ScheduleValidationError
+AIProviderUnavailableError
 AIConfigurationError
 TaskClassificationError
+ChatResponseError
 ```
 
 Avoid creating a new exception when the condition is merely a preview warning or

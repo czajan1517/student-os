@@ -2,14 +2,10 @@ import json
 import os
 from typing import Any
 
-from openai import OpenAI, OpenAIError
 from pydantic import ValidationError
 
+from backend.ai.ollama_client import OllamaClient, OllamaRequestError
 from backend.schemas.ai import TaskClassification, TaskClassificationRequest
-
-
-class AIConfigurationError(Exception):
-    pass
 
 
 class TaskClassificationError(Exception):
@@ -17,9 +13,9 @@ class TaskClassificationError(Exception):
 
 
 class TaskClassifier:
-    """Preview-only OpenAI task classifier with structured output."""
+    """Preview-only local task classifier with structured output."""
 
-    DEFAULT_MODEL = "gpt-5.6"
+    DEFAULT_MODEL = "qwen3:4b"
     _INSTRUCTIONS = """
 You classify StudentOS tasks into structured scheduling inputs.
 
@@ -34,6 +30,7 @@ Rules:
 - Never invent a due date. A supplied due date is context only and is not returned.
 - Use assumptions to disclose uncertain judgments.
 - Keep reasons and follow-up questions short and practical.
+- Return only JSON that matches the supplied schema.
 """.strip()
 
     def __init__(
@@ -42,14 +39,14 @@ Rules:
         client: Any | None = None,
         model: str | None = None,
     ):
-        self._client = client
+        self._client = client if client is not None else OllamaClient()
         self._model = model
 
     @property
     def model(self) -> str:
         return (
             self._model
-            or os.getenv("OPENAI_TASK_CLASSIFIER_MODEL")
+            or os.getenv("OLLAMA_TASK_CLASSIFIER_MODEL")
             or self.DEFAULT_MODEL
         )
 
@@ -57,14 +54,14 @@ Rules:
         self,
         request: TaskClassificationRequest,
     ) -> TaskClassification:
-        if self._client is None:
-            self._client = self._build_client()
-        client = self._client
         try:
-            response = client.responses.parse(
+            content = self._client.chat(
                 model=self.model,
-                instructions=self._INSTRUCTIONS,
-                input=[
+                messages=[
+                    {
+                        "role": "system",
+                        "content": self._INSTRUCTIONS,
+                    },
                     {
                         "role": "user",
                         "content": json.dumps(
@@ -73,31 +70,21 @@ Rules:
                         ),
                     }
                 ],
-                text_format=TaskClassification,
-                max_output_tokens=700,
-                store=False,
+                output_format=TaskClassification.model_json_schema(),
+                options={"temperature": 0, "num_predict": 512},
+                think=False,
             )
-        except (OpenAIError, ValidationError) as error:
+            classification = TaskClassification.model_validate_json(content)
+        except (OllamaRequestError, ValidationError) as error:
             raise TaskClassificationError(
                 "The task classification request failed"
             ) from error
 
-        classification = response.output_parsed
-        if classification is None:
-            raise TaskClassificationError(
-                "The model did not return a task classification"
+        if request.estimated_time_minutes is not None:
+            classification = classification.model_copy(
+                update={
+                    "estimated_time_minutes": request.estimated_time_minutes,
+                }
             )
-        return classification
 
-    @staticmethod
-    def _build_client() -> OpenAI:
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        if not api_key or api_key == "your_api_key_here":
-            raise AIConfigurationError(
-                "OPENAI_API_KEY is not configured on the backend"
-            )
-        return OpenAI(
-            api_key=api_key,
-            timeout=20.0,
-            max_retries=2,
-        )
+        return classification

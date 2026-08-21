@@ -10,12 +10,13 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DATABASE_PATH.as_posix()}"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from backend.ai.task_classifier import AIConfigurationError  # noqa: E402
-from backend.api.ai import get_task_classifier  # noqa: E402
+from backend.ai.ollama_client import AIProviderUnavailableError  # noqa: E402
+from backend.api.ai import get_chat_responder, get_task_classifier  # noqa: E402
 from backend.database.database import engine  # noqa: E402
 from backend.database.models import Base  # noqa: E402
 from backend.main import app  # noqa: E402
 from backend.schemas.ai import (  # noqa: E402
+    ChatResponse,
     SuggestedEffort,
     SuggestedImportance,
     TaskClassification,
@@ -128,14 +129,16 @@ class ApiSchemaContractTests(unittest.TestCase):
         self.assertEqual(classification["suggested_importance"], "high")
         self.assertEqual(self.client.get("/tasks").json(), tasks_before)
 
-    def test_ai_task_classification_reports_missing_configuration(self):
-        class MisconfiguredTaskClassifier:
+    def test_ai_task_classification_reports_unavailable_local_provider(self):
+        class UnavailableTaskClassifier:
             @staticmethod
             def classify_task(_request):
-                raise AIConfigurationError("OPENAI_API_KEY is not configured")
+                raise AIProviderUnavailableError(
+                    "Ollama is not running at http://127.0.0.1:11434"
+                )
 
         app.dependency_overrides[get_task_classifier] = (
-            lambda: MisconfiguredTaskClassifier()
+            lambda: UnavailableTaskClassifier()
         )
         try:
             response = self.client.post(
@@ -146,7 +149,61 @@ class ApiSchemaContractTests(unittest.TestCase):
             app.dependency_overrides.pop(get_task_classifier, None)
 
         self.assertEqual(response.status_code, 503)
-        self.assertIn("OPENAI_API_KEY", response.json()["detail"])
+        self.assertIn("Ollama is not running", response.json()["detail"])
+
+    def test_ai_chat_response_is_read_only(self):
+        class StubChatResponder:
+            @staticmethod
+            def respond(_request):
+                return ChatResponse(
+                    message="Start with the closest deadline."
+                )
+
+        tasks_before = self.client.get("/tasks").json()
+        events_before = self.client.get("/calendar_events").json()
+        app.dependency_overrides[get_chat_responder] = (
+            lambda: StubChatResponder()
+        )
+        try:
+            response = self.client.post(
+                "/ai/respond",
+                json={
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "What should I study first?",
+                        }
+                    ]
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_chat_responder, None)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["message"],
+            "Start with the closest deadline.",
+        )
+        self.assertEqual(self.client.get("/tasks").json(), tasks_before)
+        self.assertEqual(
+            self.client.get("/calendar_events").json(),
+            events_before,
+        )
+
+    def test_ai_chat_rejects_a_non_user_latest_message(self):
+        response = self.client.post(
+            "/ai/respond",
+            json={
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "How can I help?",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
 
     def test_task_rejects_priority_outside_the_enum(self):
         response = self.client.post(

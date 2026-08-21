@@ -26,6 +26,7 @@ The project is currently under active development.
 - Sidebar navigation and page routing
 - Reusable React component architecture
 - Frontend and backend API integration
+- Local, read-only AI chat and task classification through Ollama
 
 ## Project Structure
 
@@ -57,6 +58,25 @@ the initial schema once before upgrading:
 python -m alembic stamp 25b9c5e2c8ce
 python -m alembic upgrade head
 ```
+
+## Local AI Setup
+
+StudentOS uses Ollama for local AI. The task, calendar, priority, and scheduling
+features do not depend on Ollama and continue to work when it is stopped.
+
+1. Install [Ollama for Windows](https://ollama.com/download/windows).
+2. Download the default local model:
+
+```powershell
+ollama pull qwen3:4b
+```
+
+3. Copy `.env.example` to `.env` if a local `.env` does not already exist.
+4. Start the backend after Ollama is running.
+
+The backend connects to `http://127.0.0.1:11434` by default. No API key is
+required. The current AI endpoints are read-only: they respond to chat and
+preview task classifications but do not create or modify application data.
 
 ## Status
 

@@ -1,7 +1,8 @@
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.schemas.common import TaskType
 
@@ -41,3 +42,28 @@ class TaskClassification(BaseModel):
     reasons: list[str]
     assumptions: list[str]
     follow_up_questions: list[str]
+
+
+class ChatMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    messages: list[ChatMessage] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def require_latest_user_message(self):
+        if self.messages[-1].role != "user":
+            raise ValueError("The latest chat message must come from the user")
+        return self
+
+
+class ChatResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(min_length=1)
