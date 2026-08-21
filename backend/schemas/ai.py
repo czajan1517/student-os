@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from backend.schemas.common import TaskType
+from backend.schemas.common import EffortLevel, PriorityLevel, TaskType
 
 
 class SuggestedImportance(str, Enum):
@@ -67,3 +67,64 @@ class ChatResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1)
+
+
+class TaskActionPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(min_length=1, max_length=4000)
+
+
+class TaskCreateInterpretation(BaseModel):
+    """Structured model output before backend-owned enum conversion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    description: str
+    suggested_importance: SuggestedImportance
+    estimated_time_minutes: int | None = Field(default=None, gt=0, le=1440)
+    task_type: TaskType
+    effort_level: SuggestedEffort
+    recovery_buffer_minutes: int = Field(ge=0, le=120)
+    splittable: bool
+    due_date: str
+    confidence: float = Field(ge=0, le=1)
+    reasons: list[str]
+    assumptions: list[str]
+    follow_up_questions: list[str]
+
+
+class TaskCreateDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+    priority: PriorityLevel = PriorityLevel.NORMAL
+    estimated_time: int | None = Field(default=None, gt=0, le=1440)
+    task_type: TaskType = TaskType.GENERAL
+    effort_level: EffortLevel = EffortLevel.MODERATE
+    recovery_buffer_minutes: int = Field(default=15, ge=0, le=120)
+    splittable: bool = True
+    due_date: datetime | None = None
+    completed: Literal[False] = False
+
+
+class TaskCreateProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["create_task"] = "create_task"
+    task: TaskCreateDraft
+    confidence: float = Field(ge=0, le=1)
+    reasons: list[str]
+    assumptions: list[str]
+    follow_up_questions: list[str]
+    ready_to_apply: bool
+    requires_confirmation: Literal[True] = True
+
+
+class TaskActionApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposal: TaskCreateProposal
+    confirmed: Literal[True]

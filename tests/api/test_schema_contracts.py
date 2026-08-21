@@ -11,7 +11,11 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DATABASE_PATH.as_posix()}"
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend.ai.ollama_client import AIProviderUnavailableError  # noqa: E402
-from backend.api.ai import get_chat_responder, get_task_classifier  # noqa: E402
+from backend.api.ai import (  # noqa: E402
+    get_chat_responder,
+    get_task_action_service,
+    get_task_classifier,
+)
 from backend.database.database import engine  # noqa: E402
 from backend.database.models import Base  # noqa: E402
 from backend.main import app  # noqa: E402
@@ -204,6 +208,112 @@ class ApiSchemaContractTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 422)
+
+    def test_ai_task_action_preview_does_not_write(self):
+        class StubTaskActionService:
+            @staticmethod
+            def preview_task_creation(_request):
+                return {
+                    "task": {
+                        "title": "Finish database project",
+                        "description": "Complete the API documentation",
+                        "priority": 1,
+                        "estimated_time": 180,
+                        "task_type": "project",
+                        "effort_level": 2,
+                        "recovery_buffer_minutes": 20,
+                        "splittable": True,
+                        "due_date": "2026-08-25T09:00:00",
+                        "completed": False,
+                    },
+                    "confidence": 0.9,
+                    "reasons": ["The request describes a project"],
+                    "assumptions": [],
+                    "follow_up_questions": [],
+                    "ready_to_apply": True,
+                    "requires_confirmation": True,
+                }
+
+        tasks_before = self.client.get("/tasks").json()
+        app.dependency_overrides[get_task_action_service] = (
+            lambda: StubTaskActionService()
+        )
+        try:
+            response = self.client.post(
+                "/ai/actions/tasks/preview",
+                json={"message": "Create my database project task"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_task_action_service, None)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["requires_confirmation"])
+        self.assertEqual(self.client.get("/tasks").json(), tasks_before)
+
+    def test_ai_task_action_requires_explicit_confirmation(self):
+        response = self.client.post(
+            "/ai/actions/tasks/apply",
+            json={
+                "proposal": self._ready_task_proposal(),
+                "confirmed": False,
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_ai_task_action_applies_through_the_task_service(self):
+        response = self.client.post(
+            "/ai/actions/tasks/apply",
+            json={
+                "proposal": self._ready_task_proposal(),
+                "confirmed": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        created = response.json()
+        self.assertEqual(created["title"], "AI-confirmed task")
+        self.assertEqual(created["estimated_time"], 75)
+        self.assertFalse(created["completed"])
+        self.assertEqual(
+            self.client.get(f"/tasks/{created['id']}").status_code,
+            200,
+        )
+
+    def test_ai_task_action_rejects_an_unready_proposal(self):
+        proposal = self._ready_task_proposal()
+        proposal["ready_to_apply"] = False
+
+        response = self.client.post(
+            "/ai/actions/tasks/apply",
+            json={"proposal": proposal, "confirmed": True},
+        )
+
+        self.assertEqual(response.status_code, 409)
+
+    @staticmethod
+    def _ready_task_proposal():
+        return {
+            "action": "create_task",
+            "task": {
+                "title": "AI-confirmed task",
+                "description": "Created only after confirmation",
+                "priority": 0,
+                "estimated_time": 75,
+                "task_type": "general",
+                "effort_level": 1,
+                "recovery_buffer_minutes": 15,
+                "splittable": True,
+                "due_date": None,
+                "completed": False,
+            },
+            "confidence": 0.9,
+            "reasons": ["The user explicitly requested a task"],
+            "assumptions": [],
+            "follow_up_questions": [],
+            "ready_to_apply": True,
+            "requires_confirmation": True,
+        }
 
     def test_task_rejects_priority_outside_the_enum(self):
         response = self.client.post(

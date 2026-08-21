@@ -34,9 +34,9 @@ Do not treat every non-`200` response as a backend defect. A `404`, `409`, or
 | Status | Meaning in StudentOS | First place to inspect |
 | --- | --- | --- |
 | `404 Not Found` | The requested task or calendar event does not exist | The endpoint in `backend/api/` and the ID sent by the caller |
-| `409 Conflict` | Valid input could not be applied because the requested schedule is infeasible | `backend/services/schedule_service.py` and the returned preview |
+| `409 Conflict` | A valid schedule is infeasible or an AI task proposal still needs information | The relevant scheduling or AI action service |
 | `422 Unprocessable Content` | The request shape or domain values are invalid | `backend/schemas/`, then the relevant service |
-| `502 Bad Gateway` | The local model did not provide usable output | `backend/ai/task_classifier.py` or `backend/ai/chat_responder.py` |
+| `502 Bad Gateway` | The local model did not provide usable output | The classifier, chat responder, or task action service in `backend/ai/` |
 | `503 Service Unavailable` | Ollama is stopped or its configured model is missing | `backend/ai/ollama_client.py` and Ollama itself |
 | `500 Internal Server Error` | An unexpected exception escaped the known handlers | Backend traceback; begin at the deepest StudentOS file in the traceback |
 
@@ -182,7 +182,7 @@ these errors named exception classes and explicit API mappings.
 ### `AIProviderUnavailableError` / `503`
 
 - **Visible message:** `Ollama is not running at http://127.0.0.1:11434`
-- **Seen from:** `POST /ai/tasks/classify` or `POST /ai/respond`
+- **Seen from:** AI classification, chat, or action-preview endpoints.
 - **Meaning:** The backend could not connect to the local Ollama server.
 - **Raised by:** `backend/ai/ollama_client.py`
 - **Translated by:** `backend/api/ai.py`
@@ -194,8 +194,9 @@ these errors named exception classes and explicit API mappings.
 - **Meaning:** Ollama is running, but the configured model is unavailable.
 - **Raised by:** `backend/ai/ollama_client.py`
 - **Translated by:** `backend/api/ai.py`
-- **Check:** Run `ollama pull <model>` or correct `OLLAMA_CHAT_MODEL` and
-  `OLLAMA_TASK_CLASSIFIER_MODEL` in the backend environment.
+- **Check:** Run `ollama pull <model>` or correct `OLLAMA_CHAT_MODEL`,
+  `OLLAMA_TASK_CLASSIFIER_MODEL`, and `OLLAMA_TASK_ACTION_MODEL` in the backend
+  environment.
 
 ### `TaskClassificationError` / `502` — request failed
 
@@ -225,6 +226,37 @@ these errors named exception classes and explicit API mappings.
 - **Raised by:** `backend/ai/chat_responder.py`
 - **Check:** Inspect the response status for refusal or incomplete output. Do not
   log private conversation text in user-facing errors.
+
+### `TaskActionPlanningError` / `502`
+
+- **Visible message:** `The task action preview request failed`
+- **Seen from:** `POST /ai/actions/tasks/preview`
+- **Meaning:** Ollama failed to return a task interpretation matching the action
+  schema. No database write occurred.
+- **Raised by:** `backend/ai/task_action_service.py`
+- **Translated by:** `backend/api/ai.py`
+- **Check:** Inspect the chained Ollama or Pydantic error and compare the model
+  output contract with `TaskCreateInterpretation` in `backend/schemas/ai.py`.
+
+### `TaskActionNotReadyError` / `409`
+
+- **Visible message:** `The task proposal needs more information before it can be applied`
+- **Seen from:** `POST /ai/actions/tasks/apply`
+- **Meaning:** The proposal contains unresolved information, such as a missing
+  duration. StudentOS intentionally refused to create the task.
+- **Raised by:** `backend/ai/task_action_service.py`
+- **Translated by:** `backend/api/ai.py`
+- **Check:** Display `follow_up_questions`, collect the missing answer, and
+  generate a new preview instead of forcing the existing proposal through.
+
+### AI action confirmation validation / `422`
+
+- **Seen from:** `POST /ai/actions/tasks/apply`
+- **Meaning:** `confirmed` was missing or was not exactly `true`, or the nested
+  proposal did not match its strict schema.
+- **Raised by:** Pydantic before the endpoint runs.
+- **Check:** Show the preview to the user first and send the unchanged proposal
+  only after explicit confirmation.
 
 ## Warnings are not exceptions
 

@@ -26,7 +26,7 @@ The project is currently under active development.
 - Sidebar navigation and page routing
 - Reusable React component architecture
 - Frontend and backend API integration
-- Local, read-only AI chat and task classification through Ollama
+- Local AI chat, task classification, and confirmed task creation through Ollama
 
 ## Project Structure
 
@@ -75,8 +75,17 @@ ollama pull qwen3:4b
 4. Start the backend after Ollama is running.
 
 The backend connects to `http://127.0.0.1:11434` by default. No API key is
-required. The current AI endpoints are read-only: they respond to chat and
-preview task classifications but do not create or modify application data.
+required. Chat and classification remain read-only. AI task creation uses two
+separate requests so interpretation cannot write by itself:
+
+1. `POST /ai/actions/tasks/preview` returns a validated task proposal without
+   changing the database.
+2. `POST /ai/actions/tasks/apply` accepts that proposal only with
+   `confirmed: true`, then delegates creation to `TaskService`.
+
+Update, delete, and scheduling actions are not enabled for AI. Authentication
+and per-user ownership must be added before this confirmation flow is exposed
+outside the local single-user development environment.
 
 ## Status
 

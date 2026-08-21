@@ -15,13 +15,13 @@ function getErrorMessage(payload) {
     return "StudentOS AI could not respond. Please try again.";
 }
 
-export async function sendChatMessage(messages) {
-    const response = await fetch(`${API_URL}/ai/respond`, {
+async function postAI(path, body) {
+    const response = await fetch(`${API_URL}${path}`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
         },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify(body),
     });
 
     const payload = await response.json().catch(() => null);
@@ -30,4 +30,19 @@ export async function sendChatMessage(messages) {
     }
 
     return payload;
+}
+
+export function sendChatMessage(messages) {
+    return postAI("/ai/respond", { messages });
+}
+
+export function previewTaskCreation(message) {
+    return postAI("/ai/actions/tasks/preview", { message });
+}
+
+export function applyTaskCreation(proposal) {
+    return postAI("/ai/actions/tasks/apply", {
+        proposal,
+        confirmed: true,
+    });
 }
