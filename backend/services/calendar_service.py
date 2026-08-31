@@ -1,9 +1,14 @@
+import logging
+
 from backend.database.database import SessionLocal
 from backend.database.models import CalendarEvent, Task
 from backend.schemas.calendar import CalendarCreate, CalendarUpdate
 
 
-class CalendarEventService: 
+logger = logging.getLogger("studentos.calendar")
+
+
+class CalendarEventService:
 
     def create_event(self, calendar_event: CalendarCreate):
         db = SessionLocal()
@@ -26,9 +31,28 @@ class CalendarEventService:
             )
             db.add(new_event)
             db.commit()
-            db.refresh(new_event)    
+            db.refresh(new_event)
+            logger.info(
+                "calendar_event_created event_id=%s task_id=%s locked=%s",
+                new_event.id,
+                new_event.task_id,
+                new_event.locked,
+            )
+        except ValueError as error:
+            db.rollback()
+            logger.warning(
+                "calendar_event_create_rejected task_id=%s reason=%s",
+                calendar_event.task_id,
+                type(error).__name__,
+            )
+            raise
         except Exception:
             db.rollback()
+            logger.exception(
+                "calendar_event_create_failed task_id=%s locked=%s",
+                calendar_event.task_id,
+                calendar_event.locked,
+            )
             raise
         finally:
             db.close()
@@ -64,6 +88,10 @@ class CalendarEventService:
         try:
             existing_event = db.query(CalendarEvent).filter(CalendarEvent.id == calendar_event_id).first()
             if existing_event is None:
+                logger.warning(
+                    "calendar_event_update_not_found event_id=%s",
+                    calendar_event_id,
+                )
                 return None
             
             updated_data = calendar_event_data.model_dump(
@@ -98,9 +126,26 @@ class CalendarEventService:
 
             db.commit()
             db.refresh(existing_event)
+            logger.info(
+                "calendar_event_updated event_id=%s changed_fields=%s",
+                calendar_event_id,
+                ",".join(sorted(updated_data)) or "none",
+            )
 
+        except ValueError as error:
+            db.rollback()
+            logger.warning(
+                "calendar_event_update_rejected event_id=%s reason=%s",
+                calendar_event_id,
+                type(error).__name__,
+            )
+            raise
         except Exception:
             db.rollback()
+            logger.exception(
+                "calendar_event_update_failed event_id=%s",
+                calendar_event_id,
+            )
             raise
         finally: 
             db.close()
@@ -114,13 +159,25 @@ class CalendarEventService:
 
             todel_event = db.get(CalendarEvent, calendar_event_id)
             if todel_event is None:
+                logger.warning(
+                    "calendar_event_delete_not_found event_id=%s",
+                    calendar_event_id,
+                )
                 return None
             
             db.delete(todel_event)
             db.commit()
+            logger.info(
+                "calendar_event_deleted event_id=%s",
+                calendar_event_id,
+            )
     
         except Exception:
             db.rollback()
+            logger.exception(
+                "calendar_event_delete_failed event_id=%s",
+                calendar_event_id,
+            )
             raise
         
         finally:

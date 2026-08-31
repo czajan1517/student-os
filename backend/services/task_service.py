@@ -1,10 +1,14 @@
+import logging
+
 from backend.database.database import SessionLocal
 from backend.database.models import Task
 from backend.schemas.task import TaskCreate, TaskUpdate
 
 
+logger = logging.getLogger("studentos.tasks")
 
-class TaskService: 
+
+class TaskService:
 
     def create_task(self, task: TaskCreate):
         db = SessionLocal()
@@ -23,9 +27,20 @@ class TaskService:
         try:
             db.add(new_task)
             db.commit()
-            db.refresh(new_task)    
+            db.refresh(new_task)
+            logger.info(
+                "task_created task_id=%s task_type=%s priority=%s",
+                new_task.id,
+                new_task.task_type,
+                new_task.priority,
+            )
         except Exception:
             db.rollback()
+            logger.exception(
+                "task_create_failed task_type=%s priority=%s",
+                task.task_type.value,
+                int(task.priority),
+            )
             raise
         finally:
             db.close()
@@ -61,6 +76,7 @@ class TaskService:
         try:
             existing_task = db.query(Task).filter(Task.id == task_id).first()
             if existing_task is None:
+                logger.warning("task_update_not_found task_id=%s", task_id)
                 return None
             
             updated_data = task_data.model_dump(
@@ -86,9 +102,15 @@ class TaskService:
 
             db.commit()
             db.refresh(existing_task)
+            logger.info(
+                "task_updated task_id=%s changed_fields=%s",
+                task_id,
+                ",".join(sorted(updated_data)) or "none",
+            )
 
         except Exception:
             db.rollback()
+            logger.exception("task_update_failed task_id=%s", task_id)
             raise
         finally: 
             db.close()
@@ -102,13 +124,16 @@ class TaskService:
 
             todel_task = db.get(Task, task_id)
             if todel_task is None:
+                logger.warning("task_delete_not_found task_id=%s", task_id)
                 return None
             
             db.delete(todel_task)
             db.commit()
+            logger.info("task_deleted task_id=%s", task_id)
     
         except Exception:
             db.rollback()
+            logger.exception("task_delete_failed task_id=%s", task_id)
             raise
         
         finally:

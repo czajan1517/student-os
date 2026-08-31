@@ -41,22 +41,59 @@ class ApiSchemaContractTests(unittest.TestCase):
         engine.dispose()
         TEST_DIRECTORY.cleanup()
 
+    def test_http_requests_receive_a_traceable_safe_request_id(self):
+        with self.assertLogs("studentos.http", level="INFO") as logs:
+            response = self.client.get("/health?private_value=do-not-log")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.headers["X-Request-ID"]), 12)
+        log_output = " ".join(logs.output)
+        self.assertIn("http_request_completed", log_output)
+        self.assertIn("path=/health", log_output)
+        self.assertIn("status_code=200", log_output)
+        self.assertNotIn("private_value", log_output)
+        self.assertNotIn("do-not-log", log_output)
+
+    def test_local_frontend_origins_are_allowed_by_cors(self):
+        for origin in (
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ):
+            with self.subTest(origin=origin):
+                response = self.client.options(
+                    "/tasks",
+                    headers={
+                        "Origin": origin,
+                        "Access-Control-Request-Method": "GET",
+                    },
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.headers["Access-Control-Allow-Origin"],
+                    origin,
+                )
+
     def test_task_priority_is_numeric_and_completed_is_persisted(self):
-        response = self.client.post(
-            "/tasks",
-            json={
-                "title": "Finish the priority engine",
-                "priority": 1,
-                "estimated_time": 90,
-                "completed": True,
-            },
-        )
+        with self.assertLogs("studentos.tasks", level="INFO") as logs:
+            response = self.client.post(
+                "/tasks",
+                json={
+                    "title": "Finish the priority engine",
+                    "priority": 1,
+                    "estimated_time": 90,
+                    "completed": True,
+                },
+            )
 
         self.assertEqual(response.status_code, 201)
         task = response.json()
         self.assertEqual(task["priority"], 1)
         self.assertIsInstance(task["priority"], int)
         self.assertTrue(task["completed"])
+        log_output = " ".join(logs.output)
+        self.assertIn(f"task_created task_id={task['id']}", log_output)
+        self.assertNotIn("Finish the priority engine", log_output)
 
     def test_task_priority_inputs_are_persisted(self):
         response = self.client.post(
@@ -324,16 +361,20 @@ class ApiSchemaContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_calendar_update_rejects_invalid_date_order(self):
-        created = self.client.post(
-            "/calendar_events",
-            json={
-                "title": "Valid event",
-                "start_date": "2026-08-15T10:00:00",
-                "end_date": "2026-08-15T11:00:00",
-                "priority": 2,
-            },
-        )
+        with self.assertLogs("studentos.calendar", level="INFO") as logs:
+            created = self.client.post(
+                "/calendar_events",
+                json={
+                    "title": "Valid event",
+                    "start_date": "2026-08-15T10:00:00",
+                    "end_date": "2026-08-15T11:00:00",
+                    "priority": 2,
+                },
+            )
         self.assertEqual(created.status_code, 201)
+        log_output = " ".join(logs.output)
+        self.assertIn("calendar_event_created", log_output)
+        self.assertNotIn("Valid event", log_output)
 
         event_id = created.json()["id"]
         response = self.client.put(
@@ -536,20 +577,25 @@ class ApiSchemaContractTests(unittest.TestCase):
             },
         ).json()
 
-        response = self.client.post(
-            "/schedule/apply",
-            json={
-                "task_id": task["id"],
-                "window_start": "2026-09-12T08:00:00",
-                "window_end": "2026-09-12T12:00:00",
-                "recovery_buffer_minutes": 0,
-            },
-        )
+        with self.assertLogs("studentos.schedule", level="WARNING") as logs:
+            response = self.client.post(
+                "/schedule/apply",
+                json={
+                    "task_id": task["id"],
+                    "window_start": "2026-09-12T08:00:00",
+                    "window_end": "2026-09-12T12:00:00",
+                    "recovery_buffer_minutes": 0,
+                },
+            )
 
         self.assertEqual(response.status_code, 409)
         preview = response.json()["detail"]["preview"]
         self.assertFalse(preview["feasible"])
         self.assertEqual(preview["unscheduled_minutes"], 180)
+        log_output = " ".join(logs.output)
+        self.assertIn("schedule_apply_rejected", log_output)
+        self.assertIn("unscheduled_minutes=180", log_output)
+        self.assertNotIn("Impossible workload", log_output)
         linked_events = [
             event
             for event in self.client.get("/calendar_events").json()

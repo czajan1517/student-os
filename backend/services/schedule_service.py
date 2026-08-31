@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -11,6 +12,9 @@ from backend.schemas.schedule import (
     SchedulePreview,
     ScheduleRequest,
 )
+
+
+logger = logging.getLogger("studentos.schedule")
 
 
 class ScheduleTaskNotFoundError(Exception):
@@ -41,7 +45,30 @@ class ScheduleService:
     def preview_task(self, request: ScheduleRequest) -> SchedulePreview:
         db = SessionLocal()
         try:
-            return self._build_preview(db, request)
+            preview = self._build_preview(db, request)
+            logger.info(
+                "schedule_preview_generated task_id=%s feasible=%s "
+                "block_count=%s unscheduled_minutes=%s warning_count=%s",
+                request.task_id,
+                preview.feasible,
+                len(preview.proposed_blocks),
+                preview.unscheduled_minutes,
+                len(preview.warnings),
+            )
+            return preview
+        except (ScheduleTaskNotFoundError, ScheduleValidationError) as error:
+            logger.warning(
+                "schedule_preview_rejected task_id=%s reason=%s",
+                request.task_id,
+                type(error).__name__,
+            )
+            raise
+        except Exception:
+            logger.exception(
+                "schedule_preview_failed task_id=%s",
+                request.task_id,
+            )
+            raise
         finally:
             db.close()
 
@@ -74,12 +101,39 @@ class ScheduleService:
             for event in created_events:
                 db.refresh(event)
 
-            return ScheduleApplyResult(
+            result = ScheduleApplyResult(
                 **preview.model_dump(),
                 created_events=created_events,
             )
+            logger.info(
+                "schedule_applied task_id=%s created_event_count=%s",
+                request.task_id,
+                len(created_events),
+            )
+            return result
+        except ScheduleConflictError as error:
+            db.rollback()
+            logger.warning(
+                "schedule_apply_rejected task_id=%s reason=conflict "
+                "unscheduled_minutes=%s",
+                request.task_id,
+                error.preview.unscheduled_minutes,
+            )
+            raise
+        except (ScheduleTaskNotFoundError, ScheduleValidationError) as error:
+            db.rollback()
+            logger.warning(
+                "schedule_apply_rejected task_id=%s reason=%s",
+                request.task_id,
+                type(error).__name__,
+            )
+            raise
         except Exception:
             db.rollback()
+            logger.exception(
+                "schedule_apply_failed task_id=%s",
+                request.task_id,
+            )
             raise
         finally:
             db.close()
