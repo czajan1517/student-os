@@ -25,6 +25,32 @@ const INITIAL_MESSAGE = {
         "Use Create task when you want me to prepare a task for confirmation.",
 };
 
+const CHAT_HISTORY_STORAGE_KEY = "studentos.chat.messages";
+
+
+function loadStoredMessages() {
+    try {
+        const storedMessages = JSON.parse(
+            localStorage.getItem(CHAT_HISTORY_STORAGE_KEY)
+        );
+
+        if (!Array.isArray(storedMessages) || storedMessages.length === 0) {
+            return [INITIAL_MESSAGE];
+        }
+
+        const validMessages = storedMessages.filter(
+            (message) =>
+                typeof message?.id === "string" &&
+                (message.role === "user" || message.role === "assistant") &&
+                typeof message.content === "string"
+        );
+
+        return validMessages.length ? validMessages : [INITIAL_MESSAGE];
+    } catch {
+        return [INITIAL_MESSAGE];
+    }
+}
+
 
 function createMessage(role, content) {
     return {
@@ -149,7 +175,7 @@ function TaskProposalCard({ proposal, isApplying, onConfirm, onCancel }) {
 
 
 function Chat() {
-    const [messages, setMessages] = useState([INITIAL_MESSAGE]);
+    const [messages, setMessages] = useState(loadStoredMessages);
     const [draft, setDraft] = useState("");
     const [isSending, setIsSending] = useState(false);
     const [isApplying, setIsApplying] = useState(false);
@@ -162,6 +188,13 @@ function Chat() {
     useEffect(() => {
         messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, isSending]);
+
+    useEffect(() => {
+        localStorage.setItem(
+            CHAT_HISTORY_STORAGE_KEY,
+            JSON.stringify(messages)
+        );
+    }, [messages]);
 
     async function handleSubmit(event) {
         event.preventDefault();

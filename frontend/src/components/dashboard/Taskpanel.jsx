@@ -5,12 +5,31 @@ import { NavLink } from "react-router-dom";
 
 
 
-function TaskPanel({ tasks, onToggleTask }) {
+function TaskPanel({
+    tasks,
+    onToggleTask,
+    title = "Today's Tasks",
+    description,
+    showViewLink = true,
+    emptyDescription = "No task scheduled for today.",
+}) {
 
     const sortedTasks = [...tasks].sort((a, b) => {
     
     if (a.completed !== b.completed) {
         return a.completed ? 1 : -1;
+    }
+
+    if (!a.due_date && !b.due_date) {
+        return new Date(b.created_at) - new Date(a.created_at);
+    }
+
+    if (!a.due_date) {
+        return 1;
+    }
+
+    if (!b.due_date) {
+        return -1;
     }
 
     return new Date(a.due_date) - new Date(b.due_date);
@@ -29,23 +48,25 @@ function TaskPanel({ tasks, onToggleTask }) {
 
                         <div>
                             <h2 className="text-xl font-semibold text-[#241C17]">
-                                Today's Tasks
+                                {title}
                             </h2>
                             <p className="text-sm text-[#7C7068]">
-                                {tasks.length
+                                {description ?? (tasks.length
                                     ? `${tasks.length} ${tasks.length === 1 ? "task" : "tasks"} today`
-                                    : "Your task list is clear"}
+                                    : "Your task list is clear")}
                             </p>
                         </div>
                     </div>
 
-                    <NavLink
-                        to="/tasks"
-                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-[#C7651E] transition-colors hover:bg-[#FFF0E5] hover:text-[#9E4812] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C7651E]"
-                    >
-                        View tasks
-                        <ArrowRight size={16} aria-hidden="true" />
-                    </NavLink>
+                    {showViewLink && (
+                        <NavLink
+                            to="/tasks"
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-[#C7651E] transition-colors hover:bg-[#FFF0E5] hover:text-[#9E4812] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C7651E]"
+                        >
+                            View tasks
+                            <ArrowRight size={16} aria-hidden="true" />
+                        </NavLink>
+                    )}
                 </div>
 
                 {/* Tasks */}
@@ -62,7 +83,7 @@ function TaskPanel({ tasks, onToggleTask }) {
                         </p>
 
                         <p className="text-lg text-gray-500 mt-1">
-                            No task scheduled for today.
+                            {emptyDescription}
                         </p>
                     </div>
                 ) : (
