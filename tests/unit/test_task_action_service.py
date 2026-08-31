@@ -75,11 +75,15 @@ class TaskActionServiceTests(unittest.TestCase):
         task_service = FakeTaskService()
         service, client = self.service(task_service=task_service)
 
-        proposal = service.preview_task_creation(
-            TaskActionPreviewRequest(
-                message="Create my database project task"
+        with self.assertLogs(
+            "studentos.ai.task_action",
+            level="INFO",
+        ) as logs:
+            proposal = service.preview_task_creation(
+                TaskActionPreviewRequest(
+                    message="Create my database project task"
+                )
             )
-        )
 
         self.assertTrue(proposal.ready_to_apply)
         self.assertTrue(proposal.requires_confirmation)
@@ -100,6 +104,11 @@ class TaskActionServiceTests(unittest.TestCase):
             str(call["output_format"]),
         )
         self.assertIn("2026-08-21T12:00:00+00:00", call["messages"][1]["content"])
+        log_output = " ".join(logs.output)
+        self.assertIn("task_action_preview_generated", log_output)
+        self.assertIn("ready_to_apply=True", log_output)
+        self.assertNotIn("Create my database project task", log_output)
+        self.assertNotIn("Finish database project", log_output)
 
     def test_missing_duration_blocks_apply_and_adds_a_question(self):
         interpretation = self.interpretation(

@@ -26,7 +26,9 @@ class ChatResponderTests(unittest.TestCase):
         )
 
     def test_respond_returns_text_without_application_tools(self):
-        client = FakeOllamaClient("Start with a focused 45-minute session.")
+        client = FakeOllamaClient(
+            "Start with a focused 45-minute session."
+        )
         responder = ChatResponder(client=client, model="test-chat-model")
 
         result = responder.respond(self.request())
@@ -39,14 +41,20 @@ class ChatResponderTests(unittest.TestCase):
         self.assertEqual(call["model"], "test-chat-model")
         self.assertEqual(call["messages"][0]["role"], "system")
         self.assertEqual(call["messages"][1]["role"], "user")
-        self.assertTrue(
-            call["messages"][1]["content"].endswith("/no_think")
+        self.assertEqual(
+            call["messages"][1]["content"],
+            "Help me plan a study session",
         )
+        self.assertNotIn("output_format", call)
         self.assertEqual(
             call["options"],
-            {"temperature": 0.3, "num_predict": 256},
+            {"temperature": 0.3, "num_predict": 512},
         )
-        self.assertIs(call["think"], False)
+        self.assertIn(
+            "Always provide a complete answer",
+            call["messages"][0]["content"],
+        )
+        self.assertNotIn("think", call)
         self.assertNotIn("tools", call)
 
     def test_respond_rejects_an_empty_model_message(self):
@@ -55,30 +63,55 @@ class ChatResponderTests(unittest.TestCase):
             model="test-chat-model",
         )
 
-        with self.assertRaisesRegex(ChatResponseError, "did not return"):
+        with self.assertRaisesRegex(ChatResponseError, "safe final answer"):
             responder.respond(self.request())
 
-    def test_respond_removes_model_thinking_from_the_visible_message(self):
+    def test_respond_rejects_untagged_reasoning(self):
         responder = ChatResponder(
             client=FakeOllamaClient(
-                "I should reason about this first.</think>\n\n"
-                "Here is the useful answer."
+                "Okay, the user is asking for a study plan. Let me think "
+                "about the rules and how I should structure the response."
             ),
             model="test-chat-model",
         )
 
-        result = responder.respond(self.request())
+        with self.assertRaisesRegex(
+            ChatResponseError,
+            "safe final answer",
+        ):
+            responder.respond(self.request())
 
-        self.assertEqual(result.message, "Here is the useful answer.")
+    def test_respond_rejects_thinking_tags(self):
+        responder = ChatResponder(
+            client=FakeOllamaClient(
+                "<think>Internal planning that must not be shown.</think>\n\n"
+                "Use two focused 50-minute blocks."
+            ),
+            model="test-chat-model",
+        )
+
+        with self.assertRaisesRegex(
+            ChatResponseError,
+            "safe final answer",
+        ):
+            responder.respond(self.request())
 
     def test_model_override_is_resolved_from_environment(self):
-        client = FakeOllamaClient("Use the environment model.")
+        client = FakeOllamaClient(
+            "Use the environment model."
+        )
         responder = ChatResponder(client=client)
 
         with patch.dict("os.environ", {"OLLAMA_CHAT_MODEL": "local-model"}):
             responder.respond(self.request())
 
         self.assertEqual(client.calls[0]["model"], "local-model")
+
+    def test_default_chat_model_is_the_lightweight_local_model(self):
+        responder = ChatResponder(client=FakeOllamaClient("unused"))
+
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(responder.model, "llama3.2:1b")
 
     def test_latest_chat_message_must_come_from_the_user(self):
         with self.assertRaisesRegex(ValidationError, "latest chat message"):

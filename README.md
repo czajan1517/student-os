@@ -41,6 +41,8 @@ The application uses a modular architecture separating:
 
 - [Error reference](docs/error-reference.md) — maps API errors and backend
   exceptions to their source, meaning, and first debugging steps.
+- [Logging reference](docs/logging.md) — explains the operational events,
+  configuration, request IDs, and privacy rules used by backend logs.
 
 ## Database Setup
 
@@ -65,9 +67,11 @@ StudentOS uses Ollama for local AI. The task, calendar, priority, and scheduling
 features do not depend on Ollama and continue to work when it is stopped.
 
 1. Install [Ollama for Windows](https://ollama.com/download/windows).
-2. Download the default local model:
+2. Download the local models. StudentOS uses the lightweight Llama model for
+   responsive chat and keeps Qwen for structured task analysis:
 
 ```powershell
+ollama pull llama3.2:1b
 ollama pull qwen3:4b
 ```
 

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 from datetime import datetime
@@ -18,6 +19,9 @@ from backend.schemas.ai import (
 from backend.schemas.common import EffortLevel, PriorityLevel
 from backend.schemas.task import TaskCreate, TaskRead
 from backend.services.task_service import TaskService
+
+
+logger = logging.getLogger("studentos.ai.task_action")
 
 
 class TaskActionPlanningError(Exception):
@@ -104,6 +108,7 @@ Rules:
         self,
         request: TaskActionPreviewRequest,
     ) -> TaskCreateProposal:
+        logger.info("task_action_preview_started model=%s", self.model)
         context = {
             "current_time": self._now_factory().isoformat(),
             "user_message": request.message,
@@ -126,6 +131,10 @@ Rules:
                 TaskCreateInterpretation.model_validate_json(content)
             )
         except (OllamaRequestError, ValidationError) as error:
+            logger.warning(
+                "task_action_preview_failed reason=%s",
+                type(error).__name__,
+            )
             raise TaskActionPlanningError(
                 "The task action preview request failed"
             ) from error
@@ -183,6 +192,9 @@ Rules:
                 completed=False,
             )
         except ValidationError as error:
+            logger.warning(
+                "task_action_preview_failed reason=draft_validation",
+            )
             raise TaskActionPlanningError(
                 "The task action preview request failed"
             ) from error
@@ -190,7 +202,7 @@ Rules:
             estimated_time_minutes is not None
             and not questions
         )
-        return TaskCreateProposal(
+        proposal = TaskCreateProposal(
             task=task,
             confidence=interpretation.confidence,
             reasons=interpretation.reasons,
@@ -198,17 +210,37 @@ Rules:
             follow_up_questions=questions,
             ready_to_apply=ready_to_apply,
         )
+        logger.info(
+            "task_action_preview_generated ready_to_apply=%s "
+            "question_count=%s task_type=%s estimated_time_minutes=%s "
+            "has_due_date=%s",
+            proposal.ready_to_apply,
+            len(proposal.follow_up_questions),
+            proposal.task.task_type.value,
+            proposal.task.estimated_time,
+            proposal.task.due_date is not None,
+        )
+        return proposal
 
     def apply_task_creation(
         self,
         proposal: TaskCreateProposal,
     ) -> TaskRead:
         if not proposal.ready_to_apply:
+            logger.warning(
+                "task_action_apply_rejected reason=proposal_not_ready"
+            )
             raise TaskActionNotReadyError(
                 "The task proposal needs more information before it can be applied"
             )
         task = TaskCreate.model_validate(proposal.task.model_dump())
-        return self._task_service.create_task(task)
+        created_task = self._task_service.create_task(task)
+        logger.info(
+            "task_action_applied task_id=%s task_type=%s",
+            getattr(created_task, "id", None),
+            task.task_type.value,
+        )
+        return created_task
 
     @staticmethod
     def _explicit_duration_minutes(message: str) -> int | None:

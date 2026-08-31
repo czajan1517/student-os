@@ -211,21 +211,17 @@ these errors named exception classes and explicit API mappings.
 
 ### `ChatResponseError` / `502` — request failed
 
-- **Visible message:** `The AI response request failed`
+- **Visible message:** `The AI response request failed`,
+  or `The model did not return a safe final answer`
 - **Seen from:** `POST /ai/respond`
-- **Meaning:** Ollama could not complete the read-only chat request.
+- **Meaning:** Ollama could not complete the read-only chat request, or its
+  visible content was empty or contained known internal-reasoning markers.
 - **Raised by:** `backend/ai/chat_responder.py`
 - **Translated by:** `backend/api/ai.py`
-- **Check:** Inspect the chained exception, Ollama logs, available memory, and
-  `OLLAMA_CHAT_MODEL` configuration.
-
-### `ChatResponseError` / `502` — empty response
-
-- **Visible message:** `The model did not return a message`
-- **Meaning:** The local model returned no usable output text.
-- **Raised by:** `backend/ai/chat_responder.py`
-- **Check:** Inspect the response status for refusal or incomplete output. Do not
-  log private conversation text in user-facing errors.
+- **Check:** Inspect the chained exception, safe Ollama event logs, available
+  memory, and `OLLAMA_CHAT_MODEL` configuration. Native Ollama thinking output
+  and rejected raw model content are not returned to the frontend or written
+  to application logs.
 
 ### `TaskActionPlanningError` / `502`
 

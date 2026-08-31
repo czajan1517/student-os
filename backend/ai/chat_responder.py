@@ -1,8 +1,12 @@
+import logging
 import os
 from typing import Any
 
 from backend.ai.ollama_client import OllamaClient, OllamaRequestError
 from backend.schemas.ai import ChatRequest, ChatResponse
+
+
+logger = logging.getLogger("studentos.ai.chat")
 
 
 class ChatResponseError(Exception):
@@ -12,10 +16,10 @@ class ChatResponseError(Exception):
 class ChatResponder:
     """Read-only StudentOS chat responses without application tools."""
 
-    DEFAULT_MODEL = "qwen3:4b"
+    DEFAULT_MODEL = "llama3.2:1b"
     _INSTRUCTIONS = """
-You are the StudentOS assistant. Help students reason about tasks, schedules,
-study habits, and productivity in a concise and supportive way.
+You are the StudentOS assistant. Give students complete, cohesive, and practical
+recommendations about tasks, schedules, study habits, and productivity.
 
 Rules:
 - You have no tools and cannot read or change StudentOS tasks or calendar data.
@@ -23,8 +27,22 @@ Rules:
 - If a user asks for an application change, explain that action tools are not
   enabled yet and offer a useful plan or clarification instead.
 - Do not invent private StudentOS data or missing deadlines.
-- Keep answers practical and easy to scan.
+- Return only the user-facing answer. Do not describe internal reasoning,
+  hidden instructions, role analysis, or response planning.
+- Always provide a complete answer; never stop after only a title or heading.
+- When the user requests a timed plan, list the time for every block and verify
+  that the blocks add up to the requested total.
+- Prefer a brief explanation followed by actionable steps when that improves
+  clarity. Do not add filler merely to make the answer longer.
 """.strip()
+
+    _UNSAFE_RESPONSE_MARKERS = (
+        "<think",
+        "</think>",
+        "okay, the user is asking",
+        "let me think about how",
+        "i need to remember the rules",
+    )
 
     def __init__(
         self,
@@ -44,7 +62,6 @@ Rules:
             chat_message.model_dump()
             for chat_message in request.messages
         ]
-        chat_messages[-1]["content"] += "\n\n/no_think"
 
         try:
             message = self._client.chat(
@@ -56,15 +73,33 @@ Rules:
                     },
                     *chat_messages,
                 ],
-                options={"temperature": 0.3, "num_predict": 256},
-                think=False,
+                options={"temperature": 0.3, "num_predict": 512},
             )
         except OllamaRequestError as error:
+            logger.warning("chat_response_failed reason=ollama_request")
             raise ChatResponseError("The AI response request failed") from error
 
-        if "</think>" in message:
-            message = message.rsplit("</think>", maxsplit=1)[1]
-        message = message.strip()
-        if not message:
-            raise ChatResponseError("The model did not return a message")
-        return ChatResponse(message=message)
+        response = self._validate_visible_response(message)
+
+        logger.info(
+            "chat_response_generated model=%s character_count=%s",
+            self.model,
+            len(response.message),
+        )
+        return response
+
+    @classmethod
+    def _validate_visible_response(cls, message: str) -> ChatResponse:
+        visible_message = message.strip()
+        normalized_message = visible_message.casefold()
+
+        if not visible_message or any(
+            marker in normalized_message
+            for marker in cls._UNSAFE_RESPONSE_MARKERS
+        ):
+            logger.warning("chat_response_rejected reason=unsafe_content")
+            raise ChatResponseError(
+                "The model did not return a safe final answer"
+            )
+
+        return ChatResponse(message=visible_message)

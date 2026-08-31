@@ -33,13 +33,14 @@ class OllamaClientTests(unittest.TestCase):
             client=http_client,
         )
 
-        result = client.chat(
-            model="qwen3:4b",
-            messages=[{"role": "user", "content": "Hello"}],
-            output_format={"type": "object"},
-            options={"temperature": 0},
-            think=False,
-        )
+        with self.assertLogs("studentos.ai.ollama", level="INFO") as logs:
+            result = client.chat(
+                model="qwen3:4b",
+                messages=[{"role": "user", "content": "Hello"}],
+                output_format={"type": "object"},
+                options={"temperature": 0},
+                think=False,
+            )
 
         self.assertEqual(result, "Local response")
         self.assertEqual(
@@ -51,6 +52,40 @@ class OllamaClientTests(unittest.TestCase):
         self.assertIn('"stream":false', payload)
         self.assertIn('"format":{"type":"object"}', payload)
         self.assertIn('"think":false', payload)
+        log_output = " ".join(logs.output)
+        self.assertIn("ollama_request_started", log_output)
+        self.assertIn("ollama_request_completed", log_output)
+        self.assertNotIn("Hello", log_output)
+        self.assertNotIn("Local response", log_output)
+
+    def test_chat_returns_content_without_hidden_model_thinking(self):
+        def handler(_request):
+            return httpx.Response(
+                200,
+                json={
+                    "message": {
+                        "role": "assistant",
+                        "thinking": "Private reasoning must stay hidden.",
+                        "content": '{"message":"Use two study blocks."}',
+                    }
+                },
+            )
+
+        client = OllamaClient(
+            client=httpx.Client(transport=httpx.MockTransport(handler))
+        )
+
+        with self.assertLogs("studentos.ai.ollama", level="INFO") as logs:
+            result = client.chat(
+                model="qwen3:4b",
+                messages=[{"role": "user", "content": "Plan my study"}],
+                think=True,
+            )
+
+        self.assertEqual(result, '{"message":"Use two study blocks."}')
+        log_output = " ".join(logs.output)
+        self.assertNotIn("Private reasoning", log_output)
+        self.assertNotIn("Use two study blocks", log_output)
 
     def test_connection_failure_reports_that_ollama_is_not_running(self):
         def handler(request):
