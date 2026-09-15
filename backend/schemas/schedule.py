@@ -1,8 +1,10 @@
 from datetime import date, datetime, time
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.schemas.calendar import CalendarRead
+from backend.schemas.task import TaskRead
 
 
 class TaskScheduleIntent(BaseModel):
@@ -25,8 +27,20 @@ class TaskScheduleIntent(BaseModel):
         return self
 
 
+class TaskTimingInput(BaseModel):
+    """Structured timing intent produced before deterministic resolution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    due_date: datetime | None
+    schedule_date: date | None
+    start_time: time | None
+    end_time: time | None
+    duration_minutes: int | None = Field(gt=0, le=1440)
+
+
 class TaskTimingParseResult(BaseModel):
-    """Deterministic timing facts extracted before AI-owned interpretation."""
+    """Deterministically validated and resolved task timing facts."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -37,6 +51,47 @@ class TaskTimingParseResult(BaseModel):
     duration_minutes: int | None = Field(default=None, gt=0, le=1440)
     schedule: TaskScheduleIntent | None = None
     clarification_questions: list[str] = Field(default_factory=list)
+
+
+class TaskCreationScheduleBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: datetime
+    end_date: datetime
+    duration_minutes: int = Field(gt=0, le=1440)
+    buffer_after_minutes: int = Field(default=0, ge=0, le=240)
+    locked: bool
+
+    @model_validator(mode="after")
+    def validate_block(self):
+        if (self.start_date.tzinfo is None) != (self.end_date.tzinfo is None):
+            raise ValueError(
+                "Schedule block datetimes must use the same timezone style"
+            )
+        if self.end_date <= self.start_date:
+            raise ValueError("Schedule block end must be later than start")
+        return self
+
+
+class TaskCreationSchedulePreview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["fixed", "automatic"]
+    deadline: datetime | None
+    estimated_minutes: int = Field(gt=0, le=1440)
+    available_minutes: int = Field(ge=0)
+    proposed_blocks: list[TaskCreationScheduleBlock]
+    unscheduled_minutes: int = Field(ge=0)
+    feasible: bool
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TaskCreationApplyResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task: TaskRead
+    created_events: list[CalendarRead]
+    schedule: TaskCreationSchedulePreview
 
 
 class ScheduleRequest(BaseModel):

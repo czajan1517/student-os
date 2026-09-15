@@ -28,15 +28,30 @@ from backend.schemas.ai import (  # noqa: E402
 from backend.schemas.common import TaskType  # noqa: E402
 
 
+def _assert_isolated_test_database():
+    database_path = engine.url.database
+    development_database_path = Path("studentos.db").resolve()
+
+    if (
+        not database_path
+        or Path(database_path).resolve() == development_database_path
+    ):
+        raise RuntimeError(
+            "Refusing to create or delete test tables in studentos.db"
+        )
+
+
 class ApiSchemaContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        _assert_isolated_test_database()
         Base.metadata.create_all(bind=engine)
         cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
         cls.client.close()
+        _assert_isolated_test_database()
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
         TEST_DIRECTORY.cleanup()
@@ -246,10 +261,13 @@ class ApiSchemaContractTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    def test_ai_task_action_preview_does_not_write(self):
+    def test_ai_task_action_preview_accepts_current_proposal_without_writing(self):
+        captured_requests = []
+
         class StubTaskActionService:
             @staticmethod
-            def preview_task_creation(_request):
+            def preview_task_creation(request):
+                captured_requests.append(request)
                 return {
                     "task": {
                         "title": "Finish database project",
@@ -262,6 +280,33 @@ class ApiSchemaContractTests(unittest.TestCase):
                         "splittable": True,
                         "due_date": "2026-08-25T09:00:00",
                         "completed": False,
+                    },
+                    "timing": {
+                        "due_date": "2026-08-25T09:00:00",
+                        "requested_schedule_date": None,
+                        "requested_start_time": None,
+                        "requested_end_time": None,
+                        "duration_minutes": 180,
+                        "schedule": None,
+                        "clarification_questions": [],
+                    },
+                    "schedule_preview": {
+                        "mode": "automatic",
+                        "deadline": "2026-08-25T09:00:00",
+                        "estimated_minutes": 180,
+                        "available_minutes": 240,
+                        "proposed_blocks": [
+                            {
+                                "start_date": "2026-08-24T09:00:00",
+                                "end_date": "2026-08-24T12:00:00",
+                                "duration_minutes": 180,
+                                "buffer_after_minutes": 20,
+                                "locked": False,
+                            }
+                        ],
+                        "unscheduled_minutes": 0,
+                        "feasible": True,
+                        "warnings": [],
                     },
                     "confidence": 0.9,
                     "reasons": ["The request describes a project"],
@@ -278,13 +323,31 @@ class ApiSchemaContractTests(unittest.TestCase):
         try:
             response = self.client.post(
                 "/ai/actions/tasks/preview",
-                json={"message": "Create my database project task"},
+                json={
+                    "message": "Actually, make that two hours",
+                    "current_proposal": self._ready_task_proposal(),
+                    "answering_field": "duration",
+                    "latest_answer": "two hours",
+                    "timezone_name": "Asia/Manila",
+                    "utc_offset_minutes": 480,
+                },
             )
         finally:
             app.dependency_overrides.pop(get_task_action_service, None)
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["requires_confirmation"])
+        self.assertEqual(
+            captured_requests[0].current_proposal.task.estimated_time,
+            75,
+        )
+        self.assertEqual(captured_requests[0].timezone_name, "Asia/Manila")
+        self.assertEqual(captured_requests[0].utc_offset_minutes, 480)
+        self.assertEqual(
+            captured_requests[0].answering_field.value,
+            "duration",
+        )
+        self.assertEqual(captured_requests[0].latest_answer, "two hours")
         self.assertEqual(self.client.get("/tasks").json(), tasks_before)
 
     def test_ai_task_action_requires_explicit_confirmation(self):
@@ -298,7 +361,58 @@ class ApiSchemaContractTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    def test_ai_task_action_applies_through_the_task_service(self):
+    def test_ai_task_action_conflict_does_not_create_an_orphan_task(self):
+        proposal = self._ready_task_proposal()
+        proposal["task"]["due_date"] = "2026-10-02T12:00:00"
+        proposal["timing"].update(
+            {
+                "due_date": "2026-10-02T12:00:00",
+                "requested_schedule_date": "2026-10-02",
+                "schedule": {
+                    "start_at": "2026-10-02T09:00:00",
+                    "end_at": "2026-10-02T10:15:00",
+                    "locked": True,
+                },
+            }
+        )
+        proposal["schedule_preview"].update(
+            {
+                "deadline": "2026-10-02T12:00:00",
+                "proposed_blocks": [
+                    {
+                        "start_date": "2026-10-02T09:00:00",
+                        "end_date": "2026-10-02T10:15:00",
+                        "duration_minutes": 75,
+                        "buffer_after_minutes": 15,
+                        "locked": True,
+                    }
+                ],
+            }
+        )
+        occupied = self.client.post(
+            "/calendar_events",
+            json={
+                "title": "Existing appointment",
+                "start_date": "2026-10-02T09:30:00",
+                "end_date": "2026-10-02T10:30:00",
+            },
+        )
+        self.assertEqual(occupied.status_code, 201)
+        tasks_before = self.client.get("/tasks").json()
+
+        response = self.client.post(
+            "/ai/actions/tasks/apply",
+            json={"proposal": proposal, "confirmed": True},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json()["detail"]["message"],
+            "The proposed task cannot be safely scheduled",
+        )
+        self.assertEqual(self.client.get("/tasks").json(), tasks_before)
+
+    def test_ai_task_action_creates_a_linked_calendar_event(self):
         response = self.client.post(
             "/ai/actions/tasks/apply",
             json={
@@ -309,11 +423,16 @@ class ApiSchemaContractTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         created = response.json()
-        self.assertEqual(created["title"], "AI-confirmed task")
-        self.assertEqual(created["estimated_time"], 75)
-        self.assertFalse(created["completed"])
+        task = created["task"]
+        self.assertEqual(task["title"], "AI-confirmed task")
+        self.assertEqual(task["estimated_time"], 75)
+        self.assertFalse(task["completed"])
+        self.assertEqual(len(created["created_events"]), 1)
+        event = created["created_events"][0]
+        self.assertEqual(event["task_id"], task["id"])
+        self.assertTrue(event["locked"])
         self.assertEqual(
-            self.client.get(f"/tasks/{created['id']}").status_code,
+            self.client.get(f"/tasks/{task['id']}").status_code,
             200,
         )
 
@@ -341,8 +460,39 @@ class ApiSchemaContractTests(unittest.TestCase):
                 "effort_level": 1,
                 "recovery_buffer_minutes": 15,
                 "splittable": True,
-                "due_date": None,
+                "due_date": "2026-10-01T12:00:00",
                 "completed": False,
+            },
+            "timing": {
+                "due_date": "2026-10-01T12:00:00",
+                "requested_schedule_date": "2026-10-01",
+                "requested_start_time": "09:00:00",
+                "requested_end_time": "10:15:00",
+                "duration_minutes": 75,
+                "schedule": {
+                    "start_at": "2026-10-01T09:00:00",
+                    "end_at": "2026-10-01T10:15:00",
+                    "locked": True,
+                },
+                "clarification_questions": [],
+            },
+            "schedule_preview": {
+                "mode": "fixed",
+                "deadline": "2026-10-01T12:00:00",
+                "estimated_minutes": 75,
+                "available_minutes": 75,
+                "proposed_blocks": [
+                    {
+                        "start_date": "2026-10-01T09:00:00",
+                        "end_date": "2026-10-01T10:15:00",
+                        "duration_minutes": 75,
+                        "buffer_after_minutes": 15,
+                        "locked": True,
+                    }
+                ],
+                "unscheduled_minutes": 0,
+                "feasible": True,
+                "warnings": [],
             },
             "confidence": 0.9,
             "reasons": ["The user explicitly requested a task"],

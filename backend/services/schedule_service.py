@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
+from typing import Callable
 
 from sqlalchemy.orm import Session
 
@@ -11,7 +12,12 @@ from backend.schemas.schedule import (
     ScheduleApplyResult,
     SchedulePreview,
     ScheduleRequest,
+    TaskCreationApplyResult,
+    TaskCreationScheduleBlock,
+    TaskCreationSchedulePreview,
+    TaskTimingParseResult,
 )
+from backend.schemas.task import TaskCreate
 
 
 logger = logging.getLogger("studentos.schedule")
@@ -31,6 +37,12 @@ class ScheduleConflictError(Exception):
         self.preview = preview
 
 
+class TaskCreationScheduleConflictError(Exception):
+    def __init__(self, preview: TaskCreationSchedulePreview):
+        super().__init__("The proposed task cannot be safely scheduled")
+        self.preview = preview
+
+
 @dataclass(frozen=True)
 class TimeInterval:
     start: datetime
@@ -42,8 +54,15 @@ class TimeInterval:
 
 
 class ScheduleService:
+    def __init__(
+        self,
+        *,
+        session_factory: Callable[[], Session] = SessionLocal,
+    ):
+        self._session_factory = session_factory
+
     def preview_task(self, request: ScheduleRequest) -> SchedulePreview:
-        db = SessionLocal()
+        db = self._session_factory()
         try:
             preview = self._build_preview(db, request)
             logger.info(
@@ -73,7 +92,7 @@ class ScheduleService:
             db.close()
 
     def apply_task(self, request: ScheduleRequest) -> ScheduleApplyResult:
-        db = SessionLocal()
+        db = self._session_factory()
         try:
             preview = self._build_preview(db, request)
             if not preview.feasible:
@@ -137,6 +156,305 @@ class ScheduleService:
             raise
         finally:
             db.close()
+
+    def preview_task_creation(
+        self,
+        task: TaskCreate,
+        timing: TaskTimingParseResult,
+        now: datetime,
+    ) -> TaskCreationSchedulePreview:
+        db = self._session_factory()
+        try:
+            preview = self._build_task_creation_preview(
+                db,
+                task,
+                timing,
+                now,
+            )
+            logger.info(
+                "task_creation_schedule_preview_generated mode=%s "
+                "feasible=%s block_count=%s unscheduled_minutes=%s",
+                preview.mode,
+                preview.feasible,
+                len(preview.proposed_blocks),
+                preview.unscheduled_minutes,
+            )
+            return preview
+        except Exception:
+            logger.exception("task_creation_schedule_preview_failed")
+            raise
+        finally:
+            db.close()
+
+    def apply_task_creation(
+        self,
+        task: TaskCreate,
+        timing: TaskTimingParseResult,
+        now: datetime,
+    ) -> TaskCreationApplyResult:
+        db = self._session_factory()
+        try:
+            preview = self._build_task_creation_preview(
+                db,
+                task,
+                timing,
+                now,
+            )
+            if not preview.feasible:
+                raise TaskCreationScheduleConflictError(preview)
+
+            new_task = self._new_task(task)
+            db.add(new_task)
+            db.flush()
+
+            created_events = [
+                CalendarEvent(
+                    title=new_task.title,
+                    description=new_task.description,
+                    priority=new_task.priority,
+                    task_id=new_task.id,
+                    locked=block.locked,
+                    buffer_after_minutes=block.buffer_after_minutes,
+                    start_date=block.start_date,
+                    end_date=block.end_date,
+                )
+                for block in preview.proposed_blocks
+            ]
+            db.add_all(created_events)
+            db.flush()
+            db.refresh(new_task)
+            for event in created_events:
+                db.refresh(event)
+
+            result = TaskCreationApplyResult(
+                task=new_task,
+                created_events=created_events,
+                schedule=preview,
+            )
+            db.commit()
+            logger.info(
+                "task_creation_schedule_applied task_id=%s mode=%s "
+                "created_event_count=%s",
+                new_task.id,
+                preview.mode,
+                len(created_events),
+            )
+            return result
+        except TaskCreationScheduleConflictError as error:
+            db.rollback()
+            logger.warning(
+                "task_creation_schedule_apply_rejected reason=conflict "
+                "mode=%s unscheduled_minutes=%s",
+                error.preview.mode,
+                error.preview.unscheduled_minutes,
+            )
+            raise
+        except Exception:
+            db.rollback()
+            logger.exception("task_creation_schedule_apply_failed")
+            raise
+        finally:
+            db.close()
+
+    def _build_task_creation_preview(
+        self,
+        db: Session,
+        task: TaskCreate,
+        timing: TaskTimingParseResult,
+        now: datetime,
+    ) -> TaskCreationSchedulePreview:
+        if timing.schedule is not None:
+            return self._build_fixed_task_creation_preview(
+                db,
+                task,
+                timing,
+            )
+        return self._build_automatic_task_creation_preview(
+            db,
+            task,
+            now,
+        )
+
+    def _build_fixed_task_creation_preview(
+        self,
+        db: Session,
+        task: TaskCreate,
+        timing: TaskTimingParseResult,
+    ) -> TaskCreationSchedulePreview:
+        schedule = timing.schedule
+        if schedule is None:
+            raise ScheduleValidationError("A fixed schedule was not supplied")
+
+        duration_minutes = TimeInterval(
+            schedule.start_at,
+            schedule.end_at,
+        ).minutes
+        has_conflict = self._fixed_schedule_has_conflict(
+            db,
+            schedule.start_at,
+            schedule.end_at,
+            task.recovery_buffer_minutes,
+        )
+        misses_deadline = (
+            task.due_date is not None
+            and schedule.end_at > task.due_date
+        )
+        warnings: list[str] = []
+        if has_conflict:
+            warnings.append(
+                "The requested time overlaps existing calendar time"
+            )
+        if misses_deadline:
+            warnings.append(
+                "The requested schedule ends after the task deadline"
+            )
+        duration_mismatch = duration_minutes != task.estimated_time
+        if duration_mismatch:
+            warnings.append(
+                "The requested schedule duration does not match the task duration"
+            )
+
+        feasible = (
+            not has_conflict
+            and not misses_deadline
+            and not duration_mismatch
+        )
+        return TaskCreationSchedulePreview(
+            mode="fixed",
+            deadline=task.due_date,
+            estimated_minutes=task.estimated_time,
+            available_minutes=(duration_minutes if feasible else 0),
+            proposed_blocks=[
+                TaskCreationScheduleBlock(
+                    start_date=schedule.start_at,
+                    end_date=schedule.end_at,
+                    duration_minutes=duration_minutes,
+                    buffer_after_minutes=task.recovery_buffer_minutes,
+                    locked=True,
+                )
+            ],
+            unscheduled_minutes=(0 if feasible else task.estimated_time),
+            feasible=feasible,
+            warnings=warnings,
+        )
+
+    def _build_automatic_task_creation_preview(
+        self,
+        db: Session,
+        task: TaskCreate,
+        now: datetime,
+    ) -> TaskCreationSchedulePreview:
+        if task.due_date is None:
+            raise ScheduleValidationError(
+                "Automatic scheduling requires a task deadline"
+            )
+
+        window_start = now.replace(second=0, microsecond=0)
+        self._require_matching_timezone_style(window_start, task.due_date)
+        warnings: list[str] = [
+            "The scheduling window was limited by the task deadline"
+        ]
+
+        if task.due_date <= window_start:
+            free_intervals: list[TimeInterval] = []
+        else:
+            free_intervals = self._get_free_intervals_for_window(
+                db,
+                window_start=window_start,
+                day_start=time(8, 0),
+                day_end=time(20, 0),
+                cutoff=task.due_date,
+            )
+
+        available_minutes = sum(
+            interval.minutes for interval in free_intervals
+        )
+        minimum_block_minutes = 30 if task.splittable else task.estimated_time
+        maximum_block_minutes = 120 if task.splittable else task.estimated_time
+        blocks, unscheduled_minutes = self._allocate_blocks(
+            free_intervals,
+            task.estimated_time,
+            minimum_block_minutes,
+            maximum_block_minutes,
+            task.recovery_buffer_minutes,
+        )
+
+        if unscheduled_minutes and task.recovery_buffer_minutes:
+            no_buffer_blocks, no_buffer_remaining = self._allocate_blocks(
+                free_intervals,
+                task.estimated_time,
+                minimum_block_minutes,
+                maximum_block_minutes,
+                0,
+            )
+            if no_buffer_remaining < unscheduled_minutes:
+                blocks = no_buffer_blocks
+                unscheduled_minutes = no_buffer_remaining
+                warnings.append(
+                    "Recovery buffers were reduced to protect the deadline"
+                )
+
+        if unscheduled_minutes:
+            warnings.append(
+                f"{unscheduled_minutes} minutes could not be scheduled "
+                "before the deadline"
+            )
+
+        return TaskCreationSchedulePreview(
+            mode="automatic",
+            deadline=task.due_date,
+            estimated_minutes=task.estimated_time,
+            available_minutes=available_minutes,
+            proposed_blocks=[
+                TaskCreationScheduleBlock(
+                    start_date=block.start_date,
+                    end_date=block.end_date,
+                    duration_minutes=block.duration_minutes,
+                    buffer_after_minutes=block.buffer_after_minutes,
+                    locked=False,
+                )
+                for block in blocks
+            ],
+            unscheduled_minutes=unscheduled_minutes,
+            feasible=unscheduled_minutes == 0,
+            warnings=warnings,
+        )
+
+    @staticmethod
+    def _new_task(task: TaskCreate) -> Task:
+        return Task(
+            title=task.title,
+            description=task.description,
+            priority=int(task.priority),
+            estimated_time=task.estimated_time,
+            task_type=task.task_type.value,
+            effort_level=int(task.effort_level),
+            recovery_buffer_minutes=task.recovery_buffer_minutes,
+            splittable=task.splittable,
+            due_date=task.due_date,
+            completed=task.completed,
+        )
+
+    def _fixed_schedule_has_conflict(
+        self,
+        db: Session,
+        start_at: datetime,
+        end_at: datetime,
+        buffer_after_minutes: int,
+    ) -> bool:
+        requested_end = end_at + timedelta(minutes=buffer_after_minutes)
+        for event in db.query(CalendarEvent).all():
+            event_start = self._match_timezone_style(
+                event.start_date,
+                start_at,
+            )
+            event_end = self._match_timezone_style(
+                event.end_date,
+                start_at,
+            ) + timedelta(minutes=event.buffer_after_minutes)
+            if event_start < requested_end and event_end > start_at:
+                return True
+        return False
 
     def _build_preview(
         self,
@@ -270,64 +588,116 @@ class ScheduleService:
         request: ScheduleRequest,
         cutoff: datetime,
     ) -> list[TimeInterval]:
-        busy_events = (
-            db.query(CalendarEvent)
-            .filter(
-                CalendarEvent.start_date < cutoff,
-                CalendarEvent.end_date
-                > request.window_start - timedelta(minutes=240),
-            )
-            .all()
-        )
-        busy_intervals = self._merge_intervals(
-            [
-                TimeInterval(
-                    max(event.start_date, request.window_start),
-                    min(
-                        event.end_date
-                        + timedelta(minutes=event.buffer_after_minutes),
-                        cutoff,
-                    ),
-                )
-                for event in busy_events
-            ]
+        return self._get_free_intervals_for_window(
+            db,
+            window_start=request.window_start,
+            day_start=request.day_start,
+            day_end=request.day_end,
+            cutoff=cutoff,
         )
 
+    def _get_free_intervals_for_window(
+        self,
+        db: Session,
+        *,
+        window_start: datetime,
+        day_start: time,
+        day_end: time,
+        cutoff: datetime,
+    ) -> list[TimeInterval]:
+        busy_intervals: list[TimeInterval] = []
+        for event in db.query(CalendarEvent).all():
+            event_start = self._match_timezone_style(
+                event.start_date,
+                window_start,
+            )
+            event_end = self._match_timezone_style(
+                event.end_date,
+                window_start,
+            ) + timedelta(minutes=event.buffer_after_minutes)
+            if event_start < cutoff and event_end > window_start:
+                busy_intervals.append(
+                    TimeInterval(
+                        max(event_start, window_start),
+                        min(event_end, cutoff),
+                    )
+                )
+
+        merged_busy_intervals = self._merge_intervals(busy_intervals)
         free_intervals: list[TimeInterval] = []
-        for working_interval in self._working_intervals(request, cutoff):
+        for working_interval in self._working_intervals_for_window(
+            window_start=window_start,
+            day_start=day_start,
+            day_end=day_end,
+            cutoff=cutoff,
+        ):
             free_intervals.extend(
-                self._subtract_busy_intervals(working_interval, busy_intervals)
+                self._subtract_busy_intervals(
+                    working_interval,
+                    merged_busy_intervals,
+                )
             )
         return free_intervals
+
+    @classmethod
+    def _match_timezone_style(
+        cls,
+        value: datetime,
+        reference: datetime,
+    ) -> datetime:
+        value_is_aware = value.utcoffset() is not None
+        reference_is_aware = reference.utcoffset() is not None
+        if reference_is_aware and not value_is_aware:
+            return value.replace(tzinfo=reference.tzinfo)
+        if value_is_aware and not reference_is_aware:
+            return value.replace(tzinfo=None)
+        if value_is_aware and reference_is_aware:
+            return value.astimezone(reference.tzinfo)
+        return value
+
+    @staticmethod
+    def _working_intervals_for_window(
+        *,
+        window_start: datetime,
+        day_start: time,
+        day_end: time,
+        cutoff: datetime,
+    ) -> list[TimeInterval]:
+        intervals: list[TimeInterval] = []
+        current_date: date = window_start.date()
+        final_date = cutoff.date()
+        timezone = window_start.tzinfo
+
+        while current_date <= final_date:
+            interval_day_start = datetime.combine(
+                current_date,
+                day_start,
+                tzinfo=timezone,
+            )
+            interval_day_end = datetime.combine(
+                current_date,
+                day_end,
+                tzinfo=timezone,
+            )
+            interval_start = max(interval_day_start, window_start)
+            interval_end = min(interval_day_end, cutoff)
+            if interval_end > interval_start:
+                intervals.append(TimeInterval(interval_start, interval_end))
+            current_date += timedelta(days=1)
+
+        return intervals
 
     @staticmethod
     def _working_intervals(
         request: ScheduleRequest,
         cutoff: datetime,
     ) -> list[TimeInterval]:
-        intervals: list[TimeInterval] = []
-        current_date: date = request.window_start.date()
-        final_date = cutoff.date()
-        timezone = request.window_start.tzinfo
-
-        while current_date <= final_date:
-            day_start = datetime.combine(
-                current_date,
-                request.day_start,
-                tzinfo=timezone,
-            )
-            day_end = datetime.combine(
-                current_date,
-                request.day_end,
-                tzinfo=timezone,
-            )
-            interval_start = max(day_start, request.window_start)
-            interval_end = min(day_end, cutoff)
-            if interval_end > interval_start:
-                intervals.append(TimeInterval(interval_start, interval_end))
-            current_date += timedelta(days=1)
-
-        return intervals
+        return ScheduleService._working_intervals_for_window(
+            window_start=request.window_start,
+            day_start=request.day_start,
+            day_end=request.day_end,
+            cutoff=cutoff,
+        )
 
     @staticmethod
     def _merge_intervals(intervals: list[TimeInterval]) -> list[TimeInterval]:

@@ -5,6 +5,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.schemas.common import EffortLevel, PriorityLevel, TaskType
+from backend.schemas.schedule import (
+    TaskCreationSchedulePreview,
+    TaskTimingInput,
+    TaskTimingParseResult,
+)
 
 
 class SuggestedImportance(str, Enum):
@@ -18,6 +23,34 @@ class SuggestedEffort(str, Enum):
     LIGHT = "light"
     MODERATE = "moderate"
     HEAVY = "heavy"
+
+
+class TaskSchedulingMode(str, Enum):
+    """How the user expects StudentOS to place the proposed task."""
+
+    AUTOMATIC = "automatic"
+    FIXED = "fixed"
+    UNDECIDED = "undecided"
+
+
+class TaskClarificationField(str, Enum):
+    TASK_TITLE = "task_title"
+    DURATION = "duration"
+    SCHEDULE_DATE = "schedule_date"
+    START_TIME = "start_time"
+    END_TIME = "end_time"
+    DUE_DATE = "due_date"
+    SCHEDULE_OR_DUE = "schedule_or_due"
+    TIMEZONE = "timezone"
+
+
+class TaskClarification(BaseModel):
+    """A model question tied to the field that would resolve it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: TaskClarificationField
+    question: str
 
 
 class TaskClassificationRequest(BaseModel):
@@ -69,30 +102,24 @@ class ChatResponse(BaseModel):
     message: str = Field(min_length=1)
 
 
-class TaskActionPreviewRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    message: str = Field(min_length=1, max_length=4000)
-
-
 class TaskCreateInterpretation(BaseModel):
-    """Structured model output before backend-owned enum conversion."""
+    """The model's full interpretation of the latest intended task state."""
 
     model_config = ConfigDict(extra="forbid")
 
     title: str
     description: str
     suggested_importance: SuggestedImportance
-    estimated_time_minutes: int | None = Field(default=None, gt=0, le=1440)
     task_type: TaskType
     effort_level: SuggestedEffort
     recovery_buffer_minutes: int = Field(ge=0, le=120)
     splittable: bool
-    due_date: str
+    scheduling_mode: TaskSchedulingMode
+    timing: TaskTimingInput
     confidence: float = Field(ge=0, le=1)
     reasons: list[str]
     assumptions: list[str]
-    follow_up_questions: list[str]
+    follow_up_questions: list[TaskClarification]
 
 
 class TaskCreateDraft(BaseModel):
@@ -114,13 +141,34 @@ class TaskCreateProposal(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["create_task"] = "create_task"
+    scheduling_mode: TaskSchedulingMode = TaskSchedulingMode.UNDECIDED
     task: TaskCreateDraft
+    timing: TaskTimingParseResult
+    schedule_preview: TaskCreationSchedulePreview | None = None
     confidence: float = Field(ge=0, le=1)
     reasons: list[str]
     assumptions: list[str]
     follow_up_questions: list[str]
+    pending_clarifications: list[TaskClarification] = Field(
+        default_factory=list
+    )
     ready_to_apply: bool
     requires_confirmation: Literal[True] = True
+
+
+class TaskActionPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(min_length=1, max_length=4000)
+    current_proposal: TaskCreateProposal | None = None
+    answering_field: TaskClarificationField | None = None
+    latest_answer: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=4000,
+    )
+    timezone_name: str | None = Field(default=None, min_length=1, max_length=100)
+    utc_offset_minutes: int | None = Field(default=None, ge=-840, le=840)
 
 
 class TaskActionApplyRequest(BaseModel):

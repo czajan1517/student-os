@@ -153,6 +153,20 @@ Do not treat every non-`200` response as a backend defect. A `404`, `409`, or
 - **Check:** Inspect `unscheduled_minutes`, the task deadline, locked events,
   working hours, recovery buffers, and minimum block size.
 
+### `TaskCreationScheduleConflictError` / `409`
+
+- **Visible message:** `The proposed task cannot be safely scheduled`
+- **Seen from:** `POST /ai/actions/tasks/apply`
+- **Meaning:** The proposal was valid when presented, but the requested fixed
+  time is now occupied or automatic scheduling can no longer place all work
+  before the deadline. The task and linked events are rolled back together.
+- **Raised by:** `backend/services/schedule_service.py`
+- **Translated by:** `backend/api/ai.py`
+- **Important response data:** `detail.preview` contains the recalculated mode,
+  proposed blocks, unscheduled minutes, and warnings.
+- **Check:** Inspect recently added calendar events, the deadline, recovery
+  buffer, and whether the user-selected block overlaps existing calendar time.
+
 ## Priority errors
 
 Priority errors currently use built-in `ValueError` and are primarily visible to
@@ -239,11 +253,14 @@ these errors named exception classes and explicit API mappings.
 - **Visible message:** `The task proposal needs more information before it can be applied`
 - **Seen from:** `POST /ai/actions/tasks/apply`
 - **Meaning:** The proposal contains unresolved information, such as a missing
-  duration. StudentOS intentionally refused to create the task.
+  duration, missing schedule/deadline, or infeasible calendar placement.
+  StudentOS intentionally refused to create the task or event.
 - **Raised by:** `backend/ai/task_action_service.py`
 - **Translated by:** `backend/api/ai.py`
 - **Check:** Display `follow_up_questions`, collect the missing answer, and
-  generate a new preview instead of forcing the existing proposal through.
+  send it as the latest message together with `current_proposal`. The model
+  interprets the revision, timing validation runs again, and a replacement
+  preview is generated before confirmation.
 
 ### AI action confirmation validation / `422`
 
@@ -265,6 +282,9 @@ The preview endpoint can return `200` while including warnings.
 | `Recovery buffers were reduced to protect the deadline` | Full buffers made the task less feasible | Show the compromise to the user |
 | `The scheduling window was limited by the task deadline` | Scheduling stopped at the deadline | Do not assume the full requested window was used |
 | `<n> minutes could not be scheduled in this window` | Some required work remains unallocated | Expand the window, move flexible work, or ask the user |
+| `The requested time overlaps existing calendar time` | A fixed user-selected block is occupied | Ask for another time; do not silently move a locked block |
+| `The requested schedule duration does not match the task duration` | The reviewed task and fixed block disagree | Generate a new preview before applying |
+| `<n> minutes could not be scheduled before the deadline` | Automatic creation could not place the full task | Change the duration/deadline or wait for priority displacement rules |
 
 ## Unexpected `500` errors
 

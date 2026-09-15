@@ -23,7 +23,8 @@ from backend.schemas.ai import (
     TaskClassificationRequest,
     TaskCreateProposal,
 )
-from backend.schemas.task import TaskRead
+from backend.schemas.schedule import TaskCreationApplyResult
+from backend.services.schedule_service import TaskCreationScheduleConflictError
 
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -112,7 +113,7 @@ def preview_task_creation(
 
 @router.post(
     "/actions/tasks/apply",
-    response_model=TaskRead,
+    response_model=TaskCreationApplyResult,
     status_code=status.HTTP_201_CREATED,
 )
 def apply_task_creation(
@@ -125,4 +126,12 @@ def apply_task_creation(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(error),
+        ) from error
+    except TaskCreationScheduleConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": str(error),
+                "preview": error.preview.model_dump(mode="json"),
+            },
         ) from error

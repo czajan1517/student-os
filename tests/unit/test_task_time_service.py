@@ -1,9 +1,9 @@
 import unittest
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from pydantic import ValidationError
 
-from backend.schemas.schedule import TaskScheduleIntent
+from backend.schemas.schedule import TaskScheduleIntent, TaskTimingInput
 from backend.services.task_time_service import TaskTimeService
 
 
@@ -31,6 +31,112 @@ class TaskTimeServiceTests(unittest.TestCase):
         self.assertIsNone(result.schedule)
         self.assertIn(
             "What date should this scheduled task occur?",
+            result.clarification_questions,
+        )
+
+    def test_structured_timing_resolves_without_parsing_a_sentence(self):
+        result = self.service.resolve(
+            TaskTimingInput(
+                due_date=datetime(2026, 9, 1, 17, 0),
+                schedule_date=date(2026, 9, 1),
+                start_time=time(14, 0),
+                end_time=None,
+                duration_minutes=120,
+            )
+        )
+
+        self.assertEqual(result.duration_minutes, 120)
+        self.assertEqual(
+            result.schedule.start_at,
+            datetime(
+                2026,
+                9,
+                1,
+                14,
+                0,
+                tzinfo=self.local_timezone,
+            ),
+        )
+        self.assertEqual(
+            result.schedule.end_at,
+            datetime(
+                2026,
+                9,
+                1,
+                16,
+                0,
+                tzinfo=self.local_timezone,
+            ),
+        )
+        self.assertEqual(result.due_date.tzinfo, self.local_timezone)
+
+    def test_structured_timing_uses_the_supplied_browser_reference_time(self):
+        browser_timezone = timezone(timedelta(hours=-4))
+        browser_now = datetime(
+            2026,
+            9,
+            1,
+            18,
+            0,
+            tzinfo=browser_timezone,
+        )
+
+        result = self.service.resolve(
+            TaskTimingInput(
+                due_date=None,
+                schedule_date=date(2026, 9, 1),
+                start_time=time(20, 0),
+                end_time=None,
+                duration_minutes=60,
+            ),
+            reference_time=browser_now,
+        )
+
+        self.assertEqual(result.schedule.start_at.tzinfo, browser_timezone)
+        self.assertEqual(
+            result.schedule.start_at,
+            datetime(2026, 9, 1, 20, 0, tzinfo=browser_timezone),
+        )
+
+    def test_structured_duration_correction_recalculates_the_end_time(self):
+        result = self.service.resolve(
+            TaskTimingInput(
+                due_date=None,
+                schedule_date=date(2026, 9, 1),
+                start_time=time(14, 0),
+                end_time=None,
+                duration_minutes=120,
+            )
+        )
+
+        self.assertEqual(
+            result.schedule.end_at,
+            datetime(
+                2026,
+                9,
+                1,
+                16,
+                0,
+                tzinfo=self.local_timezone,
+            ),
+        )
+        self.assertEqual(result.clarification_questions, [])
+
+    def test_structured_conflicting_end_and_duration_require_clarification(self):
+        result = self.service.resolve(
+            TaskTimingInput(
+                due_date=None,
+                schedule_date=date(2026, 9, 1),
+                start_time=time(14, 0),
+                end_time=time(15, 0),
+                duration_minutes=120,
+            )
+        )
+
+        self.assertIsNone(result.schedule)
+        self.assertIn(
+            "The requested end time and duration do not match. "
+            "Which one should StudentOS use?",
             result.clarification_questions,
         )
 
@@ -225,6 +331,59 @@ class TaskTimeServiceTests(unittest.TestCase):
                 0,
                 tzinfo=self.local_timezone,
             ),
+        )
+
+    def test_spelled_out_hours_are_converted_to_minutes(self):
+        result = self.service.parse(
+            "Start today at 11 PM for two hours"
+        )
+
+        self.assertEqual(result.duration_minutes, 120)
+        self.assertEqual(
+            result.schedule.end_at,
+            datetime(
+                2026,
+                9,
+                1,
+                1,
+                0,
+                tzinfo=self.local_timezone,
+            ),
+        )
+
+    def test_compound_spelled_out_duration_is_summed(self):
+        result = self.service.parse(
+            "Start today at 11 PM for one hour and thirty minutes"
+        )
+
+        self.assertEqual(result.duration_minutes, 90)
+        self.assertEqual(
+            result.schedule.end_at,
+            datetime(
+                2026,
+                9,
+                1,
+                0,
+                30,
+                tzinfo=self.local_timezone,
+            ),
+        )
+
+    def test_numeric_and_spelled_out_durations_are_equivalent(self):
+        numeric = self.service.parse(
+            "Start today at 11 PM for 45 minutes"
+        )
+        spelled_out = self.service.parse(
+            "Start today at 11 PM for forty-five minutes"
+        )
+
+        self.assertEqual(
+            spelled_out.duration_minutes,
+            numeric.duration_minutes,
+        )
+        self.assertEqual(
+            spelled_out.schedule.end_at,
+            numeric.schedule.end_at,
         )
 
     def test_explicit_end_before_start_rolls_into_the_next_day(self):

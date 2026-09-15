@@ -12,6 +12,10 @@ function getErrorMessage(payload) {
             .join("; ");
     }
 
+    if (typeof payload?.detail?.message === "string") {
+        return payload.detail.message;
+    }
+
     return "StudentOS AI could not respond. Please try again.";
 }
 
@@ -32,12 +36,39 @@ async function postAI(path, body) {
     return payload;
 }
 
+function getBrowserTimezoneName() {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+    } catch {
+        return null;
+    }
+}
+
+function getBrowserTimeContext() {
+    const utcOffsetMinutes = -new Date().getTimezoneOffset();
+    return {
+        timezone_name: getBrowserTimezoneName(),
+        utc_offset_minutes: Number.isFinite(utcOffsetMinutes)
+            ? utcOffsetMinutes
+            : null,
+    };
+}
+
 export function sendChatMessage(messages) {
     return postAI("/ai/respond", { messages });
 }
 
-export function previewTaskCreation(message) {
-    return postAI("/ai/actions/tasks/preview", { message });
+export function previewTaskCreation(message, currentProposal = null) {
+    const pendingClarification =
+        currentProposal?.pending_clarifications?.[0] ?? null;
+
+    return postAI("/ai/actions/tasks/preview", {
+        message,
+        current_proposal: currentProposal,
+        answering_field: pendingClarification?.field ?? null,
+        latest_answer: pendingClarification ? message : null,
+        ...getBrowserTimeContext(),
+    });
 }
 
 export function applyTaskCreation(proposal) {

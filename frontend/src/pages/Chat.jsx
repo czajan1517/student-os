@@ -63,6 +63,7 @@ function createMessage(role, content) {
 
 function TaskProposalCard({ proposal, isApplying, onConfirm, onCancel }) {
     const { task } = proposal;
+    const schedule = proposal.schedule_preview;
 
     return (
         <div className="ml-12 max-w-2xl rounded-2xl border border-[#E8C9B5] bg-[#FFF8F3] p-5 text-sm text-[#3E342E] shadow-sm">
@@ -135,6 +136,57 @@ function TaskProposalCard({ proposal, isApplying, onConfirm, onCancel }) {
                 )}
             </dl>
 
+            {schedule && (
+                <div className="mt-4 rounded-xl border border-[#F0D5C4] bg-white px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium">Schedule preview</p>
+                        <span className="rounded-full bg-[#FFF0E5] px-2.5 py-1 text-xs font-medium capitalize text-[#B85E1B]">
+                            {schedule.mode}
+                        </span>
+                    </div>
+
+                    {schedule.proposed_blocks.length > 0 ? (
+                        <ul className="mt-3 space-y-2 text-[#665A52]">
+                            {schedule.proposed_blocks.map((block) => (
+                                <li
+                                    className="rounded-lg bg-[#FFF8F3] px-3 py-2"
+                                    key={`${block.start_date}-${block.end_date}`}
+                                >
+                                    <span className="font-medium text-[#3E342E]">
+                                        {new Date(
+                                            block.start_date
+                                        ).toLocaleString()}
+                                    </span>{" "}
+                                    to{" "}
+                                    <span className="font-medium text-[#3E342E]">
+                                        {new Date(
+                                            block.end_date
+                                        ).toLocaleString()}
+                                    </span>
+                                    <span className="ml-2 text-xs">
+                                        {block.locked
+                                            ? "User-selected time"
+                                            : "Movable time"}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="mt-2 text-[#8A5540]">
+                            No feasible calendar block was found.
+                        </p>
+                    )}
+
+                    {schedule.warnings.length > 0 && (
+                        <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-[#8A5540]">
+                            {schedule.warnings.map((warning) => (
+                                <li key={warning}>{warning}</li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            )}
+
             {proposal.follow_up_questions.length > 0 && (
                 <div className="mt-4 rounded-xl border border-[#F0D5C4] bg-white px-4 py-3">
                     <p className="font-medium">More information needed</p>
@@ -166,7 +218,7 @@ function TaskProposalCard({ proposal, isApplying, onConfirm, onCancel }) {
                     ) : (
                         <Check size={17} />
                     )}
-                    Confirm task
+                    Confirm task and schedule
                 </button>
             </div>
         </div>
@@ -182,7 +234,6 @@ function Chat() {
     const [error, setError] = useState("");
     const [mode, setMode] = useState("chat");
     const [pendingProposal, setPendingProposal] = useState(null);
-    const [pendingActionPrompt, setPendingActionPrompt] = useState("");
     const messageEndRef = useRef(null);
 
     useEffect(() => {
@@ -212,11 +263,10 @@ function Chat() {
 
         try {
             if (mode === "create_task") {
-                const actionPrompt = pendingActionPrompt
-                    ? `${pendingActionPrompt}\nAdditional information: ${content}`
-                    : content;
-                const proposal = await previewTaskCreation(actionPrompt);
-                setPendingActionPrompt(actionPrompt);
+                const proposal = await previewTaskCreation(
+                    content,
+                    pendingProposal
+                );
                 setPendingProposal(proposal);
             } else {
                 const response = await sendChatMessage(
@@ -245,16 +295,19 @@ function Chat() {
         setError("");
         setIsApplying(true);
         try {
-            const task = await applyTaskCreation(pendingProposal);
+            const result = await applyTaskCreation(pendingProposal);
+            const { task, created_events: createdEvents } = result;
             setMessages((currentMessages) => [
                 ...currentMessages,
                 createMessage(
                     "assistant",
-                    `Task created: ${task.title} (${task.estimated_time} minutes).`
+                    `Task created and scheduled: ${task.title} ` +
+                        `(${task.estimated_time} minutes across ` +
+                        `${createdEvents.length} calendar ` +
+                        `${createdEvents.length === 1 ? "block" : "blocks"}).`
                 ),
             ]);
             setPendingProposal(null);
-            setPendingActionPrompt("");
             setMode("chat");
         } catch (requestError) {
             setError(requestError.message);
@@ -265,7 +318,6 @@ function Chat() {
 
     function handleCancelTask() {
         setPendingProposal(null);
-        setPendingActionPrompt("");
         setError("");
     }
 
