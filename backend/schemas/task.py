@@ -44,6 +44,8 @@ class TaskRead(BaseModel):
     recovery_buffer_minutes: int
     splittable: bool
     due_date: datetime | None
+    next_scheduled_start: datetime | None = None
+    next_scheduled_end: datetime | None = None
     completed: bool
     created_at: datetime
     updated_at: datetime

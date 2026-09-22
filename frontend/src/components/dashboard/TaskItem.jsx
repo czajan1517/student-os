@@ -15,19 +15,51 @@ function formatPriority(priority) {
     return "Normal";
 }
 
-function formatTaskTime(date) {
+function formatDateTime(date) {
     if (!date) {
         return "";
     }
 
-    return new Date(date).toLocaleTimeString([], {
+    return new Date(date).toLocaleString([], {
+        month: "short",
+        day: "numeric",
         hour: "numeric",
         minute: "2-digit",
     });
 }
 
+function formatSchedule(startDate, endDate) {
+    if (!startDate || !endDate) {
+        return "";
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const sameDay = start.toDateString() === end.toDateString();
+    const startLabel = start.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+    });
+    const endLabel = end.toLocaleString([], sameDay
+        ? { hour: "numeric", minute: "2-digit" }
+        : {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+        });
+
+    return `${startLabel}–${endLabel}`;
+}
+
 function TaskItem({ task, onToggle }) {
-        console.log("TaskItem received:", task);
+    const scheduleLabel = formatSchedule(
+        task.next_scheduled_start,
+        task.next_scheduled_end
+    );
+    const dueLabel = formatDateTime(task.due_date);
 
     return (
         <div className={`flex items-center justify-between px-3 py-4 border-b border-gray-200 ${
@@ -62,15 +94,23 @@ function TaskItem({ task, onToggle }) {
             </div>
 
 
-                {/* Priority and Due Time */}
+                {/* Priority, scheduled time, and deadline */}
             <div className="text-right shrink-0">
                 <p className="text-sm font-medium text-[#A85A24]">
                     {formatPriority(task.priority)}
                 </p>
 
-                <p className="text-sm text-gray-500">
-                    {formatTaskTime(task.due_date)}
-                </p>
+                {scheduleLabel && (
+                    <p className="text-sm text-gray-500">
+                        Scheduled {scheduleLabel}
+                    </p>
+                )}
+
+                {dueLabel && (
+                    <p className="text-xs text-gray-400">
+                        Due {dueLabel}
+                    </p>
+                )}
             </div>
 
 

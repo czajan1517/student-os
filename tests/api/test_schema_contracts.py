@@ -146,6 +146,40 @@ class ApiSchemaContractTests(unittest.TestCase):
         self.assertEqual(updated["recovery_buffer_minutes"], 0)
         self.assertFalse(updated["splittable"])
 
+    def test_tasks_expose_the_next_schedule_separately_from_deadline(self):
+        task = self.client.post(
+            "/tasks",
+            json={
+                "title": "Review linked schedule display",
+                "estimated_time": 120,
+            },
+        ).json()
+        event = self.client.post(
+            "/calendar_events",
+            json={
+                "title": "Review linked schedule display",
+                "task_id": task["id"],
+                "start_date": "2035-09-18T14:00:00",
+                "end_date": "2035-09-18T16:00:00",
+            },
+        )
+        self.assertEqual(event.status_code, 201)
+
+        tasks = self.client.get("/tasks").json()
+        scheduled_task = next(
+            item for item in tasks if item["id"] == task["id"]
+        )
+
+        self.assertIsNone(scheduled_task["due_date"])
+        self.assertEqual(
+            scheduled_task["next_scheduled_start"],
+            "2035-09-18T14:00:00",
+        )
+        self.assertEqual(
+            scheduled_task["next_scheduled_end"],
+            "2035-09-18T16:00:00",
+        )
+
     def test_ai_task_classification_is_preview_only(self):
         class StubTaskClassifier:
             @staticmethod

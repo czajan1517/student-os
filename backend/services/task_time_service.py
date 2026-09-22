@@ -159,6 +159,47 @@ class TaskTimeService:
             clarification_questions=questions,
         )
 
+    @classmethod
+    def extract_explicit_date(
+        cls,
+        message: str,
+        *,
+        reference_time: datetime,
+    ) -> date | None:
+        """Extract only an explicitly written date from a clarification."""
+
+        return cls._parse_date(message, reference_time)
+
+    @classmethod
+    def extract_explicit_duration(cls, message: str) -> int | None:
+        """Extract only an explicitly written total duration."""
+
+        return cls._parse_duration_minutes(message)
+
+    @classmethod
+    def extract_explicit_start_time(cls, message: str) -> time | None:
+        """Extract a standalone clock-time clarification without inference."""
+
+        match = re.fullmatch(
+            rf"\s*(?:at\s+)?(?P<clock>{cls._TIME_TOKEN})\s*[.!]?\s*",
+            message,
+            flags=re.IGNORECASE,
+        )
+        return (
+            cls._parse_time_token(match.group("clock"))
+            if match is not None
+            else None
+        )
+
+    @classmethod
+    def has_explicit_deadline_intent(cls, message: str) -> bool:
+        """Return whether the user explicitly described a deadline."""
+
+        return cls._has_deadline(
+            message,
+            cls._has_schedule_start(message),
+        )
+
     def parse(self, message: str) -> TaskTimingParseResult:
         """Parse straightforward text as a compatibility/fallback path."""
 

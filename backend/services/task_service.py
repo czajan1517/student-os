@@ -1,14 +1,40 @@
 import logging
+from datetime import datetime
 
 from backend.database.database import SessionLocal
-from backend.database.models import Task
-from backend.schemas.task import TaskCreate, TaskUpdate
+from backend.database.models import CalendarEvent, Task
+from backend.schemas.task import TaskCreate, TaskRead, TaskUpdate
 
 
 logger = logging.getLogger("studentos.tasks")
 
 
 class TaskService:
+
+    @staticmethod
+    def _task_read(task: Task, event: CalendarEvent | None = None) -> TaskRead:
+        return TaskRead.model_validate(task).model_copy(
+            update={
+                "next_scheduled_start": (
+                    event.start_date if event is not None else None
+                ),
+                "next_scheduled_end": (
+                    event.end_date if event is not None else None
+                ),
+            }
+        )
+
+    @staticmethod
+    def _next_scheduled_event(db, task_id: int) -> CalendarEvent | None:
+        return (
+            db.query(CalendarEvent)
+            .filter(
+                CalendarEvent.task_id == task_id,
+                CalendarEvent.end_date > datetime.now(),
+            )
+            .order_by(CalendarEvent.start_date.asc())
+            .first()
+        )
 
     def create_task(self, task: TaskCreate):
         db = SessionLocal()
@@ -34,6 +60,7 @@ class TaskService:
                 new_task.task_type,
                 new_task.priority,
             )
+            result = self._task_read(new_task)
         except Exception:
             db.rollback()
             logger.exception(
@@ -46,13 +73,36 @@ class TaskService:
             db.close()
 
 
-        return new_task
+        return result
 
     def get_tasks(self):  ### all tasks 
         db = SessionLocal()
         try:
             tasks = db.query(Task).all()
-            return tasks
+            if not tasks:
+                return []
+
+            task_ids = [task.id for task in tasks]
+            events = (
+                db.query(CalendarEvent)
+                .filter(
+                    CalendarEvent.task_id.in_(task_ids),
+                    CalendarEvent.end_date > datetime.now(),
+                )
+                .order_by(
+                    CalendarEvent.task_id.asc(),
+                    CalendarEvent.start_date.asc(),
+                )
+                .all()
+            )
+            next_event_by_task: dict[int, CalendarEvent] = {}
+            for event in events:
+                next_event_by_task.setdefault(event.task_id, event)
+
+            return [
+                self._task_read(task, next_event_by_task.get(task.id))
+                for task in tasks
+            ]
     
         finally:
             db.close()
@@ -61,7 +111,12 @@ class TaskService:
         db = SessionLocal()
         try: 
             one_task = db.query(Task).filter(Task.id == task_id).first()
-            return one_task
+            if one_task is None:
+                return None
+            return self._task_read(
+                one_task,
+                self._next_scheduled_event(db, task_id),
+            )
         
         finally:
 
@@ -107,6 +162,10 @@ class TaskService:
                 task_id,
                 ",".join(sorted(updated_data)) or "none",
             )
+            result = self._task_read(
+                existing_task,
+                self._next_scheduled_event(db, task_id),
+            )
 
         except Exception:
             db.rollback()
@@ -115,7 +174,7 @@ class TaskService:
         finally: 
             db.close()
 
-        return existing_task
+        return result
 
     def delete_task(self, task_id:int):
         db = SessionLocal()

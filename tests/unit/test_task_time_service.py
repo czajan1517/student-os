@@ -34,6 +34,41 @@ class TaskTimeServiceTests(unittest.TestCase):
             result.clarification_questions,
         )
 
+    def test_explicit_clarification_facts_are_extracted_independently(self):
+        answer = "Tomorrow evening for 2 hours"
+
+        extracted_date = self.service.extract_explicit_date(
+            answer,
+            reference_time=self.now,
+        )
+        extracted_duration = self.service.extract_explicit_duration(answer)
+        extracted_start_time = self.service.extract_explicit_start_time(
+            "2 pm"
+        )
+
+        self.assertEqual(extracted_date, date(2026, 9, 1))
+        self.assertEqual(extracted_duration, 120)
+        self.assertEqual(extracted_start_time, time(14, 0))
+
+    def test_start_time_fallback_rejects_non_clock_inference(self):
+        self.assertIsNone(
+            self.service.extract_explicit_start_time(
+                "sometime in the afternoon"
+            )
+        )
+
+    def test_explicit_deadline_intent_is_separate_from_schedule_wording(self):
+        self.assertTrue(
+            self.service.has_explicit_deadline_intent(
+                "Finish the report by tomorrow"
+            )
+        )
+        self.assertFalse(
+            self.service.has_explicit_deadline_intent(
+                "Review physics tomorrow evening"
+            )
+        )
+
     def test_structured_timing_resolves_without_parsing_a_sentence(self):
         result = self.service.resolve(
             TaskTimingInput(

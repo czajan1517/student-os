@@ -341,6 +341,143 @@ class TaskActionServiceTests(unittest.TestCase):
         self.assertEqual(sent_context["latest_answer"], "two hours")
         self.assertEqual(revised.follow_up_questions, [])
 
+    def test_explicit_start_time_repairs_an_omitted_qwen_field(self):
+        schedule_date = date(2026, 8, 22)
+        initial_interpretation = self.interpretation(
+            scheduling_mode=TaskSchedulingMode.FIXED,
+            timing_input=self.timing_input(
+                due_date=None,
+                schedule_date=schedule_date,
+                start_time=None,
+                duration_minutes=120,
+            ),
+            follow_up_questions=[
+                TaskClarification(
+                    field=TaskClarificationField.START_TIME,
+                    question="What time should this task start?",
+                )
+            ],
+        )
+        initial_timing = TaskTimingParseResult(
+            requested_schedule_date=schedule_date,
+            duration_minutes=120,
+            clarification_questions=[
+                "What time should this scheduled task start?"
+            ],
+        )
+        service, client, time_service, schedule_service = self.service(
+            interpretation=initial_interpretation,
+            timing_result=initial_timing,
+        )
+        initial = service.preview_task_creation(
+            TaskActionPreviewRequest(
+                message="Schedule a two-hour physics review tomorrow"
+            )
+        )
+
+        client.content = initial_interpretation.model_copy(
+            update={
+                "timing": initial_interpretation.timing.model_copy(
+                    update={"duration_minutes": None}
+                )
+            }
+        ).model_dump_json()
+        start_at = datetime(
+            2026,
+            8,
+            22,
+            14,
+            0,
+            tzinfo=timezone.utc,
+        )
+        end_at = start_at + timedelta(hours=2)
+        time_service.result = TaskTimingParseResult(
+            requested_schedule_date=schedule_date,
+            requested_start_time=time(14, 0),
+            duration_minutes=120,
+            schedule=TaskScheduleIntent(
+                start_at=start_at,
+                end_at=end_at,
+                locked=True,
+            ),
+        )
+        schedule_service.preview = self.schedule_preview(
+            mode="fixed",
+            deadline=None,
+            estimated_minutes=120,
+            available_minutes=120,
+            proposed_blocks=[
+                TaskCreationScheduleBlock(
+                    start_date=start_at,
+                    end_date=end_at,
+                    duration_minutes=120,
+                    buffer_after_minutes=20,
+                    locked=True,
+                )
+            ],
+            warnings=[],
+        )
+
+        revised = service.preview_task_creation(
+            TaskActionPreviewRequest(
+                message="2 pm",
+                current_proposal=initial,
+                answering_field=TaskClarificationField.START_TIME,
+                latest_answer="2 pm",
+            )
+        )
+
+        self.assertEqual(time_service.inputs[-1].start_time, time(14, 0))
+        self.assertEqual(time_service.inputs[-1].duration_minutes, 120)
+        self.assertEqual(revised.timing.requested_start_time, time(14, 0))
+        self.assertEqual(revised.follow_up_questions, [])
+        self.assertTrue(revised.ready_to_apply)
+
+    def test_explicit_initial_date_repairs_an_omitted_qwen_field(self):
+        tomorrow = date(2026, 8, 22)
+        interpretation = self.interpretation(
+            scheduling_mode=TaskSchedulingMode.AUTOMATIC,
+            timing_input=self.timing_input(
+                due_date=None,
+                schedule_date=None,
+                start_time=None,
+                duration_minutes=120,
+            ),
+            follow_up_questions=[
+                TaskClarification(
+                    field=TaskClarificationField.SCHEDULE_DATE,
+                    question="What time should it start?",
+                )
+            ],
+        )
+        timing_result = TaskTimingParseResult(
+            requested_schedule_date=tomorrow,
+            duration_minutes=120,
+            clarification_questions=[
+                "What time should this scheduled task start?"
+            ],
+        )
+        service, _, time_service, _ = self.service(
+            interpretation=interpretation,
+            timing_result=timing_result,
+        )
+
+        proposal = service.preview_task_creation(
+            TaskActionPreviewRequest(
+                message=(
+                    "Create a two-hour physics review task tomorrow. "
+                    "Ask me what time it should start."
+                )
+            )
+        )
+
+        self.assertEqual(time_service.inputs[-1].schedule_date, tomorrow)
+        self.assertEqual(proposal.scheduling_mode, TaskSchedulingMode.FIXED)
+        self.assertEqual(
+            proposal.pending_clarifications[0].field,
+            TaskClarificationField.START_TIME,
+        )
+
     def test_follow_up_revises_current_proposal_instead_of_reparsing_history(self):
         initial_interpretation = self.interpretation(
             timing_input=self.timing_input(duration_minutes=60)

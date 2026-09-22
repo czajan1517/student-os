@@ -195,6 +195,11 @@ Rules:
                 "The task action preview request failed"
             ) from error
 
+        interpretation = self._reconcile_explicit_timing_facts(
+            request,
+            interpretation,
+            now=now,
+        )
         normalized_timing_input = self._normalize_timing_input(
             interpretation.scheduling_mode,
             interpretation.timing,
@@ -365,6 +370,85 @@ Rules:
                 timing.schedule.end_at - timing.schedule.start_at
             ).total_seconds()
             / 60
+        )
+
+    def _reconcile_explicit_timing_facts(
+        self,
+        request: TaskActionPreviewRequest,
+        interpretation: TaskCreateInterpretation,
+        *,
+        now: datetime,
+    ) -> TaskCreateInterpretation:
+        """Restore unambiguous timing facts that Qwen omitted."""
+
+        timing_updates: dict[str, Any] = {}
+        latest_text = request.latest_answer or request.message
+        explicit_duration = TaskTimeService.extract_explicit_duration(
+            latest_text
+        )
+        if (
+            interpretation.timing.duration_minutes is None
+            and explicit_duration is not None
+        ):
+            timing_updates["duration_minutes"] = explicit_duration
+        elif (
+            interpretation.timing.duration_minutes is None
+            and request.current_proposal is not None
+            and request.answering_field
+            != TaskClarificationField.DURATION
+            and request.current_proposal.timing.duration_minutes is not None
+        ):
+            timing_updates["duration_minutes"] = (
+                request.current_proposal.timing.duration_minutes
+            )
+
+        scheduling_mode = interpretation.scheduling_mode
+        should_restore_schedule_date = (
+            interpretation.timing.schedule_date is None
+            and interpretation.timing.due_date is None
+            and not TaskTimeService.has_explicit_deadline_intent(
+                request.message
+            )
+            and (
+                request.answering_field
+                == TaskClarificationField.SCHEDULE_DATE
+                or request.current_proposal is None
+            )
+        )
+        if should_restore_schedule_date:
+            explicit_date = TaskTimeService.extract_explicit_date(
+                latest_text,
+                reference_time=now,
+            )
+            if explicit_date is not None:
+                timing_updates["schedule_date"] = explicit_date
+                scheduling_mode = TaskSchedulingMode.FIXED
+
+        if (
+            request.answering_field == TaskClarificationField.START_TIME
+            and interpretation.timing.start_time is None
+        ):
+            explicit_start_time = TaskTimeService.extract_explicit_start_time(
+                request.latest_answer
+            )
+            if explicit_start_time is not None:
+                timing_updates["start_time"] = explicit_start_time
+                scheduling_mode = TaskSchedulingMode.FIXED
+
+        if not timing_updates:
+            return interpretation
+
+        logger.info(
+            "task_action_clarification_fallback_applied fields=%s",
+            ",".join(timing_updates),
+        )
+        return interpretation.model_copy(
+            update={
+                "scheduling_mode": scheduling_mode,
+                "timing": interpretation.timing.model_copy(
+                    update=timing_updates
+                ),
+            }
         )
 
     @classmethod
