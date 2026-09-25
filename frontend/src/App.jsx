@@ -9,19 +9,22 @@ import Calendar from "./pages/Calendar";
 import Tasks from "./pages/Tasks";
 import Chat from "./pages/Chat";
 import Settings from "./pages/Settings";
+import ChatProvider from "./context/ChatProvider";
 
 function App() {
     return (
         <BrowserRouter>
-         <Routes>
-        <Route path="/" element={<MainLayout />}>
-        <Route index element={<Dashboard />} />
-        <Route path="calendar" element={<Calendar />} />
-        <Route path="Tasks" element={<Tasks />} />
-        <Route path="Chat" element={<Chat />} />
-        <Route path="Settings" element={<Settings />} />
-          </Route>
-    </Routes>
+            <ChatProvider>
+                <Routes>
+                    <Route path="/" element={<MainLayout />}>
+                        <Route index element={<Dashboard />} />
+                        <Route path="calendar" element={<Calendar />} />
+                        <Route path="Tasks" element={<Tasks />} />
+                        <Route path="Chat" element={<Chat />} />
+                        <Route path="Settings" element={<Settings />} />
+                    </Route>
+                </Routes>
+            </ChatProvider>
     </BrowserRouter>
     )
 }

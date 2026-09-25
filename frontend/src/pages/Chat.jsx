@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import {
     Bot,
     Check,
@@ -10,58 +10,10 @@ import {
     X,
 } from "lucide-react";
 
-import {
-    applyTaskCreation,
-    previewTaskCreation,
-    sendChatMessage,
-} from "../services/chatApi";
+import ChatContext from "../context/chatContext";
 
 
-const INITIAL_MESSAGE = {
-    id: "welcome-message",
-    role: "assistant",
-    content:
-        "Hi! I can help you think through tasks, study plans, and schedules. " +
-        "Use Create task when you want me to prepare a task for confirmation.",
-};
-
-const CHAT_HISTORY_STORAGE_KEY = "studentos.chat.messages";
-
-
-function loadStoredMessages() {
-    try {
-        const storedMessages = JSON.parse(
-            localStorage.getItem(CHAT_HISTORY_STORAGE_KEY)
-        );
-
-        if (!Array.isArray(storedMessages) || storedMessages.length === 0) {
-            return [INITIAL_MESSAGE];
-        }
-
-        const validMessages = storedMessages.filter(
-            (message) =>
-                typeof message?.id === "string" &&
-                (message.role === "user" || message.role === "assistant") &&
-                typeof message.content === "string"
-        );
-
-        return validMessages.length ? validMessages : [INITIAL_MESSAGE];
-    } catch {
-        return [INITIAL_MESSAGE];
-    }
-}
-
-
-function createMessage(role, content) {
-    return {
-        id: crypto.randomUUID(),
-        role,
-        content,
-    };
-}
-
-
-function TaskProposalCard({ proposal, isApplying, onConfirm, onCancel }) {
+function TaskProposalCard({ proposal, isBusy, isApplying, onConfirm, onCancel }) {
     const { task } = proposal;
     const schedule = proposal.schedule_preview;
 
@@ -83,6 +35,7 @@ function TaskProposalCard({ proposal, isApplying, onConfirm, onCancel }) {
                     className="rounded-full p-1.5 text-[#80736A] transition hover:bg-white hover:text-[#3E342E]"
                     type="button"
                     onClick={onCancel}
+                    disabled={isBusy}
                     aria-label="Cancel task proposal"
                 >
                     <X size={17} />
@@ -203,7 +156,7 @@ function TaskProposalCard({ proposal, isApplying, onConfirm, onCancel }) {
                     className="rounded-xl border border-[#DED4CD] bg-white px-4 py-2 font-medium text-[#665A52] transition hover:bg-[#F8F4F1]"
                     type="button"
                     onClick={onCancel}
-                    disabled={isApplying}
+                    disabled={isBusy}
                 >
                     Cancel
                 </button>
@@ -227,98 +180,34 @@ function TaskProposalCard({ proposal, isApplying, onConfirm, onCancel }) {
 
 
 function Chat() {
-    const [messages, setMessages] = useState(loadStoredMessages);
     const [draft, setDraft] = useState("");
-    const [isSending, setIsSending] = useState(false);
-    const [isApplying, setIsApplying] = useState(false);
-    const [error, setError] = useState("");
-    const [mode, setMode] = useState("chat");
-    const [pendingProposal, setPendingProposal] = useState(null);
+    const {
+        cancelTask,
+        confirmTask,
+        error,
+        isApplying,
+        isSending,
+        messages,
+        mode,
+        pendingProposal,
+        setMode,
+        submitMessage,
+    } = useContext(ChatContext);
     const messageEndRef = useRef(null);
 
     useEffect(() => {
         messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, isSending]);
 
-    useEffect(() => {
-        localStorage.setItem(
-            CHAT_HISTORY_STORAGE_KEY,
-            JSON.stringify(messages)
-        );
-    }, [messages]);
-
-    async function handleSubmit(event) {
+    function handleSubmit(event) {
         event.preventDefault();
         const content = draft.trim();
         if (!content || isSending || isApplying) {
             return;
         }
 
-        const userMessage = createMessage("user", content);
-        const nextMessages = [...messages, userMessage];
-        setMessages(nextMessages);
         setDraft("");
-        setError("");
-        setIsSending(true);
-
-        try {
-            if (mode === "create_task") {
-                const proposal = await previewTaskCreation(
-                    content,
-                    pendingProposal
-                );
-                setPendingProposal(proposal);
-            } else {
-                const response = await sendChatMessage(
-                    nextMessages.slice(-20).map(({ role, content: text }) => ({
-                        role,
-                        content: text,
-                    }))
-                );
-                setMessages((currentMessages) => [
-                    ...currentMessages,
-                    createMessage("assistant", response.message),
-                ]);
-            }
-        } catch (requestError) {
-            setError(requestError.message);
-        } finally {
-            setIsSending(false);
-        }
-    }
-
-    async function handleConfirmTask() {
-        if (!pendingProposal?.ready_to_apply || isApplying) {
-            return;
-        }
-
-        setError("");
-        setIsApplying(true);
-        try {
-            const result = await applyTaskCreation(pendingProposal);
-            const { task, created_events: createdEvents } = result;
-            setMessages((currentMessages) => [
-                ...currentMessages,
-                createMessage(
-                    "assistant",
-                    `Task created and scheduled: ${task.title} ` +
-                        `(${task.estimated_time} minutes across ` +
-                        `${createdEvents.length} calendar ` +
-                        `${createdEvents.length === 1 ? "block" : "blocks"}).`
-                ),
-            ]);
-            setPendingProposal(null);
-            setMode("chat");
-        } catch (requestError) {
-            setError(requestError.message);
-        } finally {
-            setIsApplying(false);
-        }
-    }
-
-    function handleCancelTask() {
-        setPendingProposal(null);
-        setError("");
+        submitMessage(content);
     }
 
     return (
@@ -380,9 +269,10 @@ function Chat() {
                     {pendingProposal && (
                         <TaskProposalCard
                             proposal={pendingProposal}
+                            isBusy={isSending || isApplying}
                             isApplying={isApplying}
-                            onConfirm={handleConfirmTask}
-                            onCancel={handleCancelTask}
+                            onConfirm={confirmTask}
+                            onCancel={cancelTask}
                         />
                     )}
 
